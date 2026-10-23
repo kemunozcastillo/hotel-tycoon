@@ -56,6 +56,45 @@ static func find_path(grid: GridMap2D, level: int, from: Vector2i, to: Vector2i,
 	return no_path
 
 
+## Coste mínimo de llegar desde `from` a cada celda alcanzable (Dijkstra con las mismas reglas
+## que find_path). Devuelve celda -> coste; `from` figura con 0 aunque no sea pisable. Sirve para
+## comparar muchos destinos a la vez (la habitación más cercana, por ejemplo) con una sola
+## búsqueda. `max_cost` recorta la búsqueda.
+static func reachable_costs(grid: GridMap2D, level: int, from: Vector2i, max_cost: float = INF) -> Dictionary:
+	var costs: Dictionary = {}
+	if not grid.has_level(level) or not grid.in_bounds(from):
+		return costs
+	var best_cost: Dictionary = {from: 0.0}
+	var open := MinHeap.new()
+	open.push(from, 0.0)
+	while not open.is_empty():
+		var current: Vector2i = open.pop()
+		if costs.has(current):
+			continue
+		var current_cost: float = best_cost[current]
+		costs[current] = current_cost
+		for step: Vector2i in ORTHOGONAL_STEPS:
+			if can_step(grid, level, current, step):
+				_relax_cost(grid, level, current + step, 1.0, current_cost, max_cost, open, best_cost, costs)
+		for step: Vector2i in DIAGONAL_STEPS:
+			if _diagonal_is_open(grid, level, current, step):
+				_relax_cost(grid, level, current + step, DIAGONAL_COST, current_cost, max_cost, open, best_cost, costs)
+	return costs
+
+
+static func _relax_cost(grid: GridMap2D, level: int, next: Vector2i, length: float, current_cost: float, max_cost: float,
+		open: MinHeap, best_cost: Dictionary, done: Dictionary) -> void:
+	if done.has(next):
+		return
+	var new_cost: float = current_cost + length * maxf(1.0, grid.get_walk_cost(next, level))
+	if new_cost > max_cost:
+		return
+	if best_cost.has(next) and new_cost >= float(best_cost[next]):
+		return
+	best_cost[next] = new_cost
+	open.push(next, new_cost)
+
+
 ## Coste total de una ruta (la suma de sus pasos con la misma fórmula que usa find_path).
 static func path_cost(grid: GridMap2D, level: int, path: Array[Vector2i]) -> float:
 	var total: float = 0.0

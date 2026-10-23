@@ -179,6 +179,50 @@ func test_search_limit_gives_up() -> void:
 	assert_true(Pathfinder.find_path(state.grid, 0, Vector2i(0, 0), Vector2i(29, 29)).size() > 0, "con el límite normal sí")
 
 
+# --- Costes hacia todas las celdas -------------------------------------------------------------
+
+func test_reachable_costs_match_find_path_on_random_maps() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 424242
+	var checked: int = 0
+	for map_index in range(15):
+		var state: GameState = GridTestHelpers.random_state(rng, Vector2i(10, 9))
+		var cells: Array[Vector2i] = GridTestHelpers.walkable_cells(state.grid)
+		if cells.size() < 5:
+			continue
+		var from: Vector2i = cells[rng.randi_range(0, cells.size() - 1)]
+		var costs: Dictionary = Pathfinder.reachable_costs(state.grid, 0, from)
+		assert_near(float(costs[from]), 0.0, "el origen cuesta 0")
+		for cell: Vector2i in cells:
+			var path: Array[Vector2i] = _find(state, from, cell)
+			if path.is_empty():
+				assert_false(costs.has(cell), "mapa %d: %s no debería ser alcanzable" % [map_index, str(cell)])
+			else:
+				assert_true(costs.has(cell), "mapa %d: %s debería ser alcanzable" % [map_index, str(cell)])
+				if costs.has(cell):
+					assert_near(float(costs[cell]), Pathfinder.path_cost(state.grid, 0, path), "mapa %d: coste a %s" % [map_index, str(cell)], 0.001)
+					checked += 1
+	assert_true(checked > 200, "se compararon suficientes destinos (%d)" % checked)
+
+
+func test_reachable_costs_respect_walls_max_cost_and_invalid_origin() -> void:
+	var state := _open_floor(Vector2i(10, 4))
+	for y in range(4):
+		state.build.place_wall(Edge.from_side(Vector2i(4, y), Edge.Side.EAST), 0)
+	var costs: Dictionary = Pathfinder.reachable_costs(state.grid, 0, Vector2i(0, 0))
+	assert_true(costs.has(Vector2i(4, 0)))
+	assert_false(costs.has(Vector2i(5, 0)), "la pared corta el mapa en dos")
+	var limited: Dictionary = Pathfinder.reachable_costs(state.grid, 0, Vector2i(0, 0), 2.0)
+	assert_true(limited.has(Vector2i(2, 0)))
+	assert_false(limited.has(Vector2i(3, 0)), "más allá del coste máximo")
+	assert_eq(Pathfinder.reachable_costs(state.grid, 0, Vector2i(-1, 0)).size(), 0, "origen fuera del mapa")
+	assert_eq(Pathfinder.reachable_costs(state.grid, 3, Vector2i(0, 0)).size(), 0, "nivel inexistente")
+	state.build.remove_floor(Vector2i(1, 1), 0)
+	var from_hole: Dictionary = Pathfinder.reachable_costs(state.grid, 0, Vector2i(1, 1))
+	assert_near(float(from_hole[Vector2i(1, 1)]), 0.0, "el origen sin suelo figura con 0")
+	assert_true(from_hole.size() > 1, "y puede salir de ahí")
+
+
 # --- A* frente a una referencia (Dijkstra) en mapas aleatorios --------------------------------
 
 func test_matches_dijkstra_on_random_maps() -> void:

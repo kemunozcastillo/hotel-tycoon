@@ -16,6 +16,7 @@ var shape_preview: ShapePreview
 var build_controller: BuildController
 var hud: CanvasLayer
 var toolbar: BuildToolbar
+var room_info_panel: RoomInfoPanel
 var clock_label: ClockLabel
 
 
@@ -52,7 +53,18 @@ func _ready() -> void:
 	toolbar = BuildToolbar.new()
 	toolbar.position = Vector2(HUD_MARGIN, HUD_MARGIN)
 	hud.add_child(toolbar)
-	toolbar.setup(build_controller)
+	toolbar.setup(build_controller, state.room_types)
+
+	room_info_panel = RoomInfoPanel.new()
+	hud.add_child(room_info_panel)
+	room_info_panel.setup(state.rooms)
+
+	# La habitación bajo el cursor se resalta y se describe en el panel.
+	cursor.hover_changed.connect(_refresh_hovered_room)
+	state.rooms.room_created.connect(_on_room_event)
+	state.rooms.room_changed.connect(_on_room_event)
+	state.rooms.room_removed.connect(_on_room_event)
+	state.rooms.room_type_changed.connect(_on_room_event)
 
 	clock_label = ClockLabel.new()
 	clock_label.anchor_left = 1.0
@@ -66,6 +78,18 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	state.tick(delta)
+
+
+func _on_room_event(_room: Room) -> void:
+	_refresh_hovered_room()
+
+
+func _refresh_hovered_room() -> void:
+	var room: Room = null
+	if cursor.is_hovering:
+		room = state.rooms.get_room_at(cursor.hover_cell, LEVEL)
+	room_overlay.set_hovered_room(room)
+	room_info_panel.show_room(room)
 
 
 ## Atajos del reloj: Espacio pausa/reanuda; 1, 2 y 3 eligen la velocidad.

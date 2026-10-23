@@ -18,6 +18,7 @@ func _initialize() -> void:
 	await _check_camera()
 	await _check_build()
 	await _check_shapes()
+	await _check_types()
 	await _check_clock()
 
 	# Capturas del resaltado: modo celda (args[0]) y modo arista (args[1]).
@@ -295,6 +296,102 @@ func _check_shapes() -> void:
 
 func _count_rooms(state: GameState) -> int:
 	return state.rooms.get_rooms(0).size()
+
+
+func _check_types() -> void:
+	print("== tipos de habitacion")
+	var state: GameState = _main.state
+	var controller: BuildController = _main.build_controller
+	var toolbar: BuildToolbar = _main.toolbar
+	var panel: RoomInfoPanel = _main.room_info_panel
+	var camera: IsoCamera = _main.camera
+	camera.position = IsoProjection.grid_to_world(Vector2(23, 21))
+	await _frames(3)
+
+	# Botones de la barra con clics reales: herramienta, des-seleccionar y cambiar de herramienta.
+	var floor_button: Button = toolbar.get_tool_button(BuildController.Tool.FLOOR)
+	await _click_button(floor_button)
+	_check(controller.current_tool == BuildController.Tool.FLOOR and floor_button.button_pressed, "el botón Suelo selecciona la herramienta")
+	await _click_button(floor_button)
+	_check(controller.current_tool == BuildController.Tool.NONE and not floor_button.button_pressed, "pulsarlo otra vez la deselecciona")
+	await _click_button(floor_button)
+	# Regresión: cambiar directamente de una herramienta a otra no debe perder la selección.
+	var wall_button: Button = toolbar.get_tool_button(BuildController.Tool.WALL)
+	await _click_button(wall_button)
+	_check(controller.current_tool == BuildController.Tool.WALL and wall_button.button_pressed and not floor_button.button_pressed, "pasar de Suelo a Pared con un clic")
+	await _click_button(floor_button)
+	_check(controller.current_tool == BuildController.Tool.FLOOR and floor_button.button_pressed, "y de Pared a Suelo")
+	var bathroom_button: Button = toolbar.get_type_button(&"bathroom")
+	await _click_button(bathroom_button)
+	_check(controller.current_tool == BuildController.Tool.TYPE and controller.selected_type_id == &"bathroom", "el botón Baño activa la herramienta Tipo")
+	_check(bathroom_button.button_pressed and not floor_button.button_pressed, "y desmarca el botón anterior")
+
+	# Un baño de 2x2 y un dormitorio de 2x3 construidos con la herramienta Habitación.
+	controller.set_tool(BuildController.Tool.ROOM)
+	await _drag_grid([_center(Vector2i(20, 20)), _center(Vector2i(21, 21))], MOUSE_BUTTON_LEFT)
+	await _drag_grid([_center(Vector2i(24, 20)), _center(Vector2i(25, 22))], MOUSE_BUTTON_LEFT)
+	state.build.place_door(Edge.from_side(Vector2i(24, 22), Edge.Side.SOUTH), 0)
+	await _frames(2)
+	_check(state.rooms.get_room_at(Vector2i(20, 20), 0) != null and state.rooms.get_room_at(Vector2i(24, 20), 0) != null, "se detectan el baño y el dormitorio")
+
+	# Asignar el tipo Baño haciendo clic dentro de la habitación.
+	await _click_button(bathroom_button)
+	await _click_grid(_center(Vector2i(20, 20)), MOUSE_BUTTON_LEFT)
+	var bathroom: Room = state.rooms.get_room_at(Vector2i(20, 20), 0)
+	_check(bathroom.type_id == &"bathroom", "clic con la herramienta Tipo asigna Baño")
+	await _move_mouse_to_grid(_center(Vector2i(21, 20)))
+	_check(panel.visible, "el panel aparece sobre una habitación")
+	var text: String = panel.get_plain_text()
+	_check(text.contains("Baño") and text.contains("2×2") and text.contains("Puertas: mínimo 1 (tiene 0)"), "el panel describe el baño y sus requisitos")
+	_check(text.contains("No operativa"), "sin puerta el baño no es operativa")
+	_check(not state.rooms.get_status(bathroom).is_operational(), "el estado del registro coincide")
+	_save_args(5)
+
+	# Con una puerta pasa a operativa; el tipo se conserva.
+	state.build.place_door(Edge.from_side(Vector2i(20, 20), Edge.Side.NORTH), 0)
+	await _frames(3)
+	text = panel.get_plain_text()
+	_check(text.contains("Operativa") and not text.contains("No operativa"), "con puerta el panel dice Operativa")
+	_check(state.rooms.get_room_at(Vector2i(20, 20), 0).type_id == &"bathroom", "y el tipo se conserva")
+
+	# Dormitorio: bien asignado al dormitorio, y mal asignado al baño (2x2 es pequeño).
+	var bedroom_button: Button = toolbar.get_type_button(&"bedroom")
+	await _click_button(bedroom_button)
+	_check(controller.selected_type_id == &"bedroom" and bedroom_button.button_pressed and not bathroom_button.button_pressed, "cambiar de tipo en la paleta")
+	await _click_grid(_center(Vector2i(24, 20)), MOUSE_BUTTON_LEFT)
+	_check(state.rooms.get_room_at(Vector2i(24, 20), 0).type_id == &"bedroom", "clic asigna Dormitorio")
+	_check(state.rooms.get_status(state.rooms.get_room_at(Vector2i(24, 20), 0)).is_operational(), "el dormitorio de 2x3 con puerta es operativo")
+	await _click_grid(_center(Vector2i(20, 20)), MOUSE_BUTTON_LEFT)
+	await _frames(2)
+	var small_bedroom: Room = state.rooms.get_room_at(Vector2i(20, 20), 0)
+	_check(small_bedroom.type_id == &"bedroom" and not state.rooms.get_status(small_bedroom).is_operational(), "un baño de 2x2 como dormitorio no es operativo")
+	_check(panel.get_plain_text().contains("Área mínima: 6 celdas (tiene 4)"), "el panel indica el requisito incumplido")
+	_save_args(6)
+
+	# Clic derecho quita el tipo; sobre suelo vacío no hace nada.
+	await _click_grid(_center(Vector2i(20, 20)), MOUSE_BUTTON_RIGHT)
+	_check(state.rooms.get_room_at(Vector2i(20, 20), 0).type_id == &"", "clic derecho quita el tipo")
+	await _click_grid(_center(Vector2i(28, 28)), MOUSE_BUTTON_LEFT)
+	_check(state.rooms.get_rooms(0).size() == 2, "clic fuera de las habitaciones no hace nada")
+
+	# Esc desmarca la herramienta y el botón.
+	await _press_key(KEY_ESCAPE)
+	_check(controller.current_tool == BuildController.Tool.NONE and not bedroom_button.button_pressed, "Esc desmarca la herramienta Tipo y su botón")
+
+	# Limpieza para no influir en las comprobaciones siguientes.
+	controller.set_tool(BuildController.Tool.ROOM)
+	await _drag_grid([_center(Vector2i(20, 20)), _center(Vector2i(21, 21))], MOUSE_BUTTON_RIGHT)
+	await _drag_grid([_center(Vector2i(24, 20)), _center(Vector2i(25, 22))], MOUSE_BUTTON_RIGHT)
+	controller.set_tool(BuildController.Tool.NONE)
+	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
+	await _frames(3)
+
+
+func _click_button(button: Button) -> void:
+	var position: Vector2 = button.get_global_rect().get_center()
+	await _send_mouse_motion(position)
+	await _send_mouse_button(MOUSE_BUTTON_LEFT, true, position)
+	await _send_mouse_button(MOUSE_BUTTON_LEFT, false, position)
 
 
 func _check_clock() -> void:

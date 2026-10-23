@@ -6,13 +6,19 @@ extends Node
 ## Clic izquierdo coloca, clic derecho quita. Con Suelo y Pared se pinta arrastrando
 ## (pincel); con Shift pulsado al empezar, el arrastre define un rectángulo (suelo relleno o
 ## perímetro de paredes). La herramienta Habitación siempre usa un rectángulo y crea suelo y
-## paredes a la vez. La herramienta Puerta coloca o quita puertas sobre las aristas. Esc cancela el arrastre en curso o, si no hay, deselecciona la herramienta.
+## paredes a la vez. La herramienta Puerta coloca o quita puertas sobre las aristas. La
+## herramienta Tipo asigna a la habitación pulsada el tipo elegido (clic derecho lo quita).
+## Esc cancela el arrastre en curso o, si no hay, deselecciona la herramienta.
 
-enum Tool { NONE, FLOOR, WALL, DOOR, ROOM }
+enum Tool { NONE, FLOOR, WALL, DOOR, ROOM, TYPE }
 
 signal tool_changed(new_tool: Tool)
+## Se eligió otro tipo de habitación para la herramienta Tipo.
+signal room_type_selected(type_id: StringName)
 
 var current_tool: Tool = Tool.NONE
+## Tipo que asigna la herramienta Tipo.
+var selected_type_id: StringName = &""
 
 var _state: GameState
 var _cursor: CellCursor
@@ -40,6 +46,18 @@ func set_tool(new_tool: Tool) -> void:
 	current_tool = new_tool
 	_cancel_stroke()
 	tool_changed.emit(new_tool)
+
+
+## Activa la herramienta Tipo con el tipo de habitación indicado.
+func select_room_type(type_id: StringName) -> void:
+	var changed: bool = type_id != selected_type_id
+	selected_type_id = type_id
+	if current_tool == Tool.TYPE:
+		if changed:
+			room_type_selected.emit(type_id)
+	else:
+		set_tool(Tool.TYPE)
+		room_type_selected.emit(type_id)
 
 
 func is_dragging_shape() -> bool:
@@ -84,7 +102,8 @@ func _on_hover_changed() -> void:
 # --- Arrastres ---------------------------------------------------------------------------
 
 func _begin_stroke(button_index: int, shift_held: bool) -> void:
-	var wants_shape: bool = current_tool == Tool.ROOM 			or (shift_held and (current_tool == Tool.FLOOR or current_tool == Tool.WALL))
+	var wants_shape: bool = current_tool == Tool.ROOM \
+			or (shift_held and (current_tool == Tool.FLOOR or current_tool == Tool.WALL))
 	if wants_shape:
 		if not _cursor.is_hovering:
 			return
@@ -138,6 +157,13 @@ func _apply_brush() -> void:
 				_state.build.remove_door(_cursor.hover_edge, _level)
 			else:
 				_state.build.place_door(_cursor.hover_edge, _level)
+		Tool.TYPE:
+			if not _cursor.is_hovering:
+				return
+			var room: Room = _state.rooms.get_room_at(_cursor.hover_cell, _level)
+			if room == null:
+				return
+			_state.rooms.set_room_type(room.id, &"" if removing else selected_type_id)
 
 
 func _apply_shape() -> void:

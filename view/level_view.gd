@@ -76,7 +76,7 @@ func _update_ground(cell: Vector2i) -> void:
 func _update_walls(cell: Vector2i) -> void:
 	var type_x: CellTypes.EdgeType = _grid.get_edge_type(Edge.new(cell, Edge.Axis.X), _level)
 	var type_y: CellTypes.EdgeType = _grid.get_edge_type(Edge.new(cell, Edge.Axis.Y), _level)
-	var coords: Vector2i = TilesetFactory.wall_coords(type_x, type_y)
+	var coords: Vector2i = TilesetFactory.wall_coords(type_x, WallStyle.Height.FULL, type_y, WallStyle.Height.FULL)
 	if coords.x < 0:
 		_walls.erase_cell(cell)
 		return

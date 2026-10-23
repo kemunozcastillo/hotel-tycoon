@@ -3,18 +3,24 @@ extends RefCounted
 ## Genera por código el TileSet isométrico con arte provisional (sin assets externos).
 ##
 ## - Fuente GROUND: un rombo de 64x32 por tipo de suelo.
-## - Fuente WALL: paneles altos sobre las aristas norte (eje X) y oeste (eje Y) de la celda.
-##   Una celda posee dos aristas y cada una puede ser nada, pared o puerta, así que hay un
-##   tile por combinación (3 x 3 = 9; la combinación "nada y nada" no se dibuja). La textura
-##   es alta y tiene el rombo de la celda en su centro (con relleno transparente debajo), para
-##   que el tile quede alineado sin tocar `texture_origin`.
+## - Fuente WALL: paneles sobre las aristas norte (eje X) y oeste (eje Y) de la celda. Cada
+##   arista puede estar en 7 estados visuales: nada, o pared / puerta en cada una de las tres
+##   alturas (WallStyle.Height). Una celda posee dos aristas, así que hay un tile por combinación
+##   (7 x 7 = 49; la de "nada y nada" no se dibuja: quedan 48). La textura es alta y tiene el
+##   rombo de la celda en su centro (con relleno transparente debajo), para que el tile quede
+##   alineado sin tocar `texture_origin`.
+##
+## Los paneles son paralelogramos con lados verticales, así que se dibujan rellenando columnas
+## de píxeles (fill_rect), no probando cada píxel contra un polígono: con 48 tiles lo segundo
+## tardaría del orden de un segundo al arrancar.
 
 const GROUND_SOURCE_ID: int = 0
 const WALL_SOURCE_ID: int = 1
 
 const GROUND_BASIC_COORDS: Vector2i = Vector2i(0, 0)
 
-const WALL_HEIGHT: int = 48
+## Altura completa de una pared (la que usan los fantasmas de construcción y las etiquetas).
+const WALL_HEIGHT: int = WallStyle.FULL_PIXELS
 ## Desplazamiento del punto de ordenación por Y de los tiles de pared (hacia el punto medio de
 ## sus aristas, que está 8 px por encima del centro de la celda).
 const WALL_Y_SORT_ORIGIN: int = -8
@@ -24,6 +30,9 @@ const DOOR_START: float = 0.22
 const DOOR_END: float = 0.78
 const DOOR_HEIGHT: int = 36
 const DOOR_FRAME_THICKNESS: float = 0.05
+# Grosor de la franja oscura de la base y de la franja clara de arriba, en píxeles.
+const BASE_STRIP: int = 2
+const CAP_STRIP: int = 3
 
 const GROUND_FILL: Color = Color(0.78, 0.70, 0.56)
 const GROUND_BORDER: Color = Color(0.52, 0.45, 0.35)
@@ -33,8 +42,9 @@ const WALL_CAP: Color = Color(0.97, 0.96, 0.94)
 const WALL_BASE: Color = Color(0.40, 0.37, 0.35)
 const DOOR_FRAME: Color = Color(0.45, 0.30, 0.18)
 
-# Número de tipos de arista (NONE, WALL, DOOR) usado para indexar las combinaciones.
-const EDGE_TYPE_COUNT: int = 3
+## Estados visuales de una arista: 0 = nada; 1..3 = pared FULL/LOW/FLAT; 4..6 = puerta FULL/LOW/FLAT.
+const EDGE_STATE_COUNT: int = 7
+const HEIGHT_COUNT: int = 3
 
 
 static func build() -> TileSet:
@@ -47,10 +57,22 @@ static func build() -> TileSet:
 	return tile_set
 
 
-## Coordenadas de atlas del tile de una celda según el tipo de su arista norte (X) y oeste (Y).
-## Devuelve (-1, -1) si no hay nada que dibujar.
-static func wall_coords(type_x: CellTypes.EdgeType, type_y: CellTypes.EdgeType) -> Vector2i:
-	var index: int = type_x * EDGE_TYPE_COUNT + type_y
+## Estado visual de una arista según lo que hay sobre ella y la altura con que se dibuja.
+static func edge_state(type: CellTypes.EdgeType, height: WallStyle.Height) -> int:
+	match type:
+		CellTypes.EdgeType.WALL:
+			return 1 + height
+		CellTypes.EdgeType.DOOR:
+			return 1 + HEIGHT_COUNT + height
+		_:
+			return 0
+
+
+## Coordenadas de atlas del tile de una celda según sus dos aristas: la norte (X) y la oeste (Y),
+## cada una con su tipo y su altura. Devuelve (-1, -1) si no hay nada que dibujar.
+static func wall_coords(type_x: CellTypes.EdgeType, height_x: WallStyle.Height,
+		type_y: CellTypes.EdgeType, height_y: WallStyle.Height) -> Vector2i:
+	var index: int = edge_state(type_x, height_x) * EDGE_STATE_COUNT + edge_state(type_y, height_y)
 	if index == 0:
 		return Vector2i(-1, -1)
 	return Vector2i(index, 0)
@@ -73,17 +95,16 @@ static func _build_ground_source() -> TileSetAtlasSource:
 
 static func _build_wall_source() -> TileSetAtlasSource:
 	var size: Vector2i = WALL_TEXTURE_SIZE
-	var combos: int = EDGE_TYPE_COUNT * EDGE_TYPE_COUNT
+	var combos: int = EDGE_STATE_COUNT * EDGE_STATE_COUNT
 	var image: Image = Image.create_empty(size.x * combos, size.y, false, Image.FORMAT_RGBA8)
-	var source: TileSetAtlasSource = null
-	for type_x in range(EDGE_TYPE_COUNT):
-		for type_y in range(EDGE_TYPE_COUNT):
-			var index: int = type_x * EDGE_TYPE_COUNT + type_y
+	for state_x in range(EDGE_STATE_COUNT):
+		for state_y in range(EDGE_STATE_COUNT):
+			var index: int = state_x * EDGE_STATE_COUNT + state_y
 			if index == 0:
 				continue
-			_draw_edge_panel(image, index * size.x, Edge.Axis.X, type_x as CellTypes.EdgeType)
-			_draw_edge_panel(image, index * size.x, Edge.Axis.Y, type_y as CellTypes.EdgeType)
-	source = _make_source(image, size)
+			_draw_edge_panel(image, index * size.x, Edge.Axis.X, state_x)
+			_draw_edge_panel(image, index * size.x, Edge.Axis.Y, state_y)
+	var source: TileSetAtlasSource = _make_source(image, size)
 	for index in range(1, combos):
 		var coords := Vector2i(index, 0)
 		source.create_tile(coords)
@@ -102,62 +123,70 @@ static func _make_source(image: Image, region_size: Vector2i) -> TileSetAtlasSou
 
 
 ## Dibuja lo que hay sobre la arista norte (X) u oeste (Y) del rombo situado en el centro del
-## tile: una pared completa o una pared con hueco de puerta.
-static func _draw_edge_panel(image: Image, offset_x: int, axis: Edge.Axis, type: CellTypes.EdgeType) -> void:
-	if type == CellTypes.EdgeType.NONE:
+## tile, según su estado visual (ver edge_state).
+static func _draw_edge_panel(image: Image, offset_x: int, axis: Edge.Axis, state: int) -> void:
+	if state == 0:
 		return
-	var origin := Vector2(offset_x, 0)
+	var is_door: bool = state > HEIGHT_COUNT
+	var height_px: int = WallStyle.pixels(((state - 1) % HEIGHT_COUNT) as WallStyle.Height)
 	# Rombo de la celda centrado verticalmente en la textura: su vértice superior queda en
-	# (32, mitad - 16).
-	var top: Vector2 = origin + Vector2(32, WALL_TEXTURE_SIZE.y * 0.5 - 16.0)
+	# (32, mitad - 16). La arista va de ese vértice al derecho (eje X) o al izquierdo (eje Y).
+	var top: Vector2 = Vector2(offset_x + 32, WALL_TEXTURE_SIZE.y * 0.5 - 16.0)
 	var end: Vector2 = top + (Vector2(32, 16) if axis == Edge.Axis.X else Vector2(-32, 16))
-	var up := Vector2(0, -WALL_HEIGHT)
 	var face: Color = WALL_FACE_X if axis == Edge.Axis.X else WALL_FACE_Y
-	var cap := Vector2(0, 3)
-	var base := Vector2(0, -2)
-
-	if type == CellTypes.EdgeType.WALL:
-		_fill_polygon(image, [top, end, end + up, top + up], face)
-		_fill_polygon(image, [top, end, end + base, top + base], WALL_BASE)
+	if is_door:
+		_draw_door(image, top, end, face, height_px)
 	else:
-		_draw_door_panel(image, top, end, face)
-	# Borde superior claro, en ambos casos.
-	_fill_polygon(image, [top + up, end + up, end + up + cap, top + up + cap], WALL_CAP)
+		_fill_band(image, top, end, 0.0, 1.0, 0, height_px, face)
+		_fill_band(image, top, end, 0.0, 1.0, maxi(height_px - CAP_STRIP, 0), height_px, WALL_CAP)
+		_fill_band(image, top, end, 0.0, 1.0, 0, mini(BASE_STRIP, height_px), WALL_BASE)
 
 
-## Pared con un hueco: dos jambas laterales y un dintel, con el marco en madera.
-static func _draw_door_panel(image: Image, top: Vector2, end: Vector2, face: Color) -> void:
-	var up := Vector2(0, -WALL_HEIGHT)
-	var door_up := Vector2(0, -DOOR_HEIGHT)
-	var base := Vector2(0, -2)
-	var along: Vector2 = end - top
-	var left: Vector2 = top + along * DOOR_START
-	var right: Vector2 = top + along * DOOR_END
-	var thick: Vector2 = along * DOOR_FRAME_THICKNESS
+## Pared con un hueco de puerta. Si la pared es más alta que la puerta (FULL) queda un dintel; si
+## no (LOW, FLAT), solo dos jambas y el hueco entero. En FLAT el hueco lleva una franja de madera
+## para que se vea dónde está la puerta.
+static func _draw_door(image: Image, top: Vector2, end: Vector2, face: Color, height_px: int) -> void:
+	var has_lintel: bool = DOOR_HEIGHT < height_px
+	var door_top: int = mini(DOOR_HEIGHT, height_px)
+	var cap_from: int = maxi(height_px - CAP_STRIP, 0)
+	var base_to: int = mini(BASE_STRIP, height_px)
 
 	# Jambas (a cada lado del hueco) y dintel (encima).
-	_fill_polygon(image, [top, left, left + up, top + up], face)
-	_fill_polygon(image, [right, end, end + up, right + up], face)
-	_fill_polygon(image, [left + door_up, right + door_up, right + up, left + up], face)
-	_fill_polygon(image, [top, left, left + base, top + base], WALL_BASE)
-	_fill_polygon(image, [right, end, end + base, right + base], WALL_BASE)
+	_fill_band(image, top, end, 0.0, DOOR_START, 0, height_px, face)
+	_fill_band(image, top, end, DOOR_END, 1.0, 0, height_px, face)
+	if has_lintel:
+		_fill_band(image, top, end, DOOR_START, DOOR_END, DOOR_HEIGHT, height_px, face)
+		_fill_band(image, top, end, 0.0, 1.0, cap_from, height_px, WALL_CAP)
+	else:
+		_fill_band(image, top, end, 0.0, DOOR_START, cap_from, height_px, WALL_CAP)
+		_fill_band(image, top, end, DOOR_END, 1.0, cap_from, height_px, WALL_CAP)
+	_fill_band(image, top, end, 0.0, DOOR_START, 0, base_to, WALL_BASE)
+	_fill_band(image, top, end, DOOR_END, 1.0, 0, base_to, WALL_BASE)
+
 	# Marco de madera alrededor del hueco.
-	_fill_polygon(image, [left, left + thick, left + thick + door_up, left + door_up], DOOR_FRAME)
-	_fill_polygon(image, [right - thick, right, right + door_up, right - thick + door_up], DOOR_FRAME)
-	_fill_polygon(image, [left + door_up, right + door_up, right + door_up + Vector2(0, 4), left + door_up + Vector2(0, 4)], DOOR_FRAME)
+	_fill_band(image, top, end, DOOR_START, DOOR_START + DOOR_FRAME_THICKNESS, 0, door_top, DOOR_FRAME)
+	_fill_band(image, top, end, DOOR_END - DOOR_FRAME_THICKNESS, DOOR_END, 0, door_top, DOOR_FRAME)
+	if has_lintel:
+		_fill_band(image, top, end, DOOR_START, DOOR_END, DOOR_HEIGHT - 4, DOOR_HEIGHT, DOOR_FRAME)
+	if height_px == WallStyle.FLAT_PIXELS:
+		_fill_band(image, top, end, DOOR_START, DOOR_END, 0, BASE_STRIP, DOOR_FRAME)
 
 
-## Rellena un polígono convexo comprobando el centro de cada píxel.
-static func _fill_polygon(image: Image, points: Array[Vector2], color: Color) -> void:
-	var polygon := PackedVector2Array(points)
-	var bounds := Rect2(points[0], Vector2.ZERO)
-	for point: Vector2 in points:
-		bounds = bounds.expand(point)
-	var x_min: int = maxi(floori(bounds.position.x), 0)
-	var y_min: int = maxi(floori(bounds.position.y), 0)
-	var x_max: int = mini(ceili(bounds.end.x), image.get_width())
-	var y_max: int = mini(ceili(bounds.end.y), image.get_height())
-	for y in range(y_min, y_max):
-		for x in range(x_min, x_max):
-			if Geometry2D.is_point_in_polygon(Vector2(x + 0.5, y + 0.5), polygon):
-				image.set_pixel(x, y, color)
+## Rellena una franja de la cara de una pared: desde la fracción `t0` hasta `t1` del largo de la
+## arista (que va de `top` a `end`) y desde `from_px` hasta `to_px` píxeles sobre su base. Un
+## píxel se pinta si su centro cae dentro de la franja. Se rellena por columnas.
+static func _fill_band(image: Image, top: Vector2, end: Vector2, t0: float, t1: float,
+		from_px: int, to_px: int, color: Color) -> void:
+	if to_px <= from_px or t1 <= t0:
+		return
+	var slope: float = (end.y - top.y) / (end.x - top.x)
+	var x_a: float = top.x + (end.x - top.x) * t0
+	var x_b: float = top.x + (end.x - top.x) * t1
+	var x_first: int = ceili(minf(x_a, x_b) - 0.5)
+	var x_last: int = floori(maxf(x_a, x_b) - 0.5)
+	for x in range(x_first, x_last + 1):
+		var base_y: float = top.y + (x + 0.5 - top.x) * slope
+		var y_first: int = ceili(base_y - to_px - 0.5)
+		var y_last: int = floori(base_y - from_px - 0.5)
+		if y_last >= y_first:
+			image.fill_rect(Rect2i(x, y_first, 1, y_last - y_first + 1), color)

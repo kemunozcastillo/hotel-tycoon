@@ -33,7 +33,7 @@ static func _explore(grid: GridMap2D, level: int, start: Vector2i, visited: Dict
 	var doors: Array[Edge] = []
 	var door_keys: Dictionary = {}
 	var leaks: bool = false
-	var complete_floor: bool = true
+	var missing_floor: int = 0
 
 	visited[start] = true
 	var queue: Array[Vector2i] = [start]
@@ -41,7 +41,7 @@ static func _explore(grid: GridMap2D, level: int, start: Vector2i, visited: Dict
 		var cell: Vector2i = queue.pop_back()
 		cells.append(cell)
 		if grid.get_floor_type(cell, level) == CellTypes.FloorType.NONE:
-			complete_floor = false
+			missing_floor += 1
 		for offset: Vector2i in OFFSETS:
 			var next: Vector2i = cell + offset
 			var edge: Edge = Edge.between(cell, next)
@@ -62,4 +62,4 @@ static func _explore(grid: GridMap2D, level: int, start: Vector2i, visited: Dict
 	if leaks:
 		return null
 	cells.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.y < b.y or (a.y == b.y and a.x < b.x))
-	return Room.new(level, cells, doors, complete_floor)
+	return Room.new(level, cells, doors, missing_floor)

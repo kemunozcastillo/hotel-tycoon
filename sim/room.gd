@@ -9,17 +9,23 @@ var level: int = 0
 var cells: Array[Vector2i] = []
 ## Puertas en el perímetro de la habitación (también las que dan al exterior).
 var doors: Array[Edge] = []
+## Cuántas celdas no tienen suelo.
+var missing_floor_cells: int = 0
 ## true si todas las celdas tienen suelo.
-var has_complete_floor: bool = false
+var has_complete_floor: bool = true
+## Tipo asignado por el jugador (&"" = sin asignar). Lo conserva RoomRegistry mientras la
+## habitación mantenga su id; el detector nunca lo rellena.
+var type_id: StringName = &""
 
 var _cell_set: Dictionary = {}
 
 
-func _init(p_level: int, p_cells: Array[Vector2i], p_doors: Array[Edge], p_complete_floor: bool) -> void:
+func _init(p_level: int, p_cells: Array[Vector2i], p_doors: Array[Edge], p_missing_floor_cells: int) -> void:
 	level = p_level
 	cells = p_cells
 	doors = p_doors
-	has_complete_floor = p_complete_floor
+	missing_floor_cells = p_missing_floor_cells
+	has_complete_floor = p_missing_floor_cells == 0
 	for cell: Vector2i in cells:
 		_cell_set[cell] = true
 
@@ -48,11 +54,17 @@ func is_rectangular() -> bool:
 	return bounds.size.x * bounds.size.y == cells.size()
 
 
-## true si tiene las mismas celdas, puertas y estado de suelo (ignora id y nivel).
+## Lado corto del rectángulo mínimo que contiene la habitación.
+func get_short_side() -> int:
+	var size: Vector2i = get_bounds().size
+	return mini(size.x, size.y)
+
+
+## true si tiene las mismas celdas, puertas y suelo (ignora id, nivel y tipo).
 func is_same_as(other: Room) -> bool:
 	if cells.size() != other.cells.size() or doors.size() != other.doors.size():
 		return false
-	if has_complete_floor != other.has_complete_floor:
+	if missing_floor_cells != other.missing_floor_cells:
 		return false
 	for cell: Vector2i in cells:
 		if not other.contains(cell):

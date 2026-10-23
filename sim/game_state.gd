@@ -7,6 +7,10 @@ const DEFAULT_MAP_SIZE: Vector2i = Vector2i(32, 32)
 var grid: GridMap2D
 var build: BuildCommands
 var clock: GameClock
+var rules: EconomyRules
+var ledger: Ledger
+var inventory: Inventory
+var pieces: PlacedPieces
 var room_types: RoomTypeCatalog
 var rooms: RoomRegistry
 var agents: AgentRegistry
@@ -17,10 +21,17 @@ var spawner: GuestSpawner
 
 
 ## `catalog` permite probar con otros tipos; por defecto se carga data/room_types.json.
-func _init(map_size: Vector2i = DEFAULT_MAP_SIZE, catalog: RoomTypeCatalog = null) -> void:
+## `economy_rules` son las reglas de dinero; por defecto no cuesta nada (así los tests pueden
+## construir sin límite) y el juego pasa EconomyRules.load_default().
+func _init(map_size: Vector2i = DEFAULT_MAP_SIZE, catalog: RoomTypeCatalog = null,
+		economy_rules: EconomyRules = null) -> void:
 	grid = GridMap2D.new(map_size)
-	build = BuildCommands.new(grid)
 	clock = GameClock.new()
+	rules = economy_rules if economy_rules != null else EconomyRules.without_costs()
+	ledger = Ledger.new(rules.start_money, clock)
+	inventory = Inventory.new()
+	pieces = PlacedPieces.new(grid, clock, rules)
+	build = BuildCommands.new(grid)
 	room_types = catalog if catalog != null else RoomTypeCatalog.load_default()
 	rooms = RoomRegistry.new(grid, room_types)
 	agents = AgentRegistry.new(grid)

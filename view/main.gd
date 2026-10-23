@@ -11,6 +11,7 @@ var state: GameState
 var level_view: LevelView
 var camera: IsoCamera
 var cursor: CellCursor
+var shape_preview: ShapePreview
 var build_controller: BuildController
 var hud: CanvasLayer
 var toolbar: BuildToolbar
@@ -29,9 +30,12 @@ func _ready() -> void:
 	add_child(cursor)
 	cursor.setup(state.grid, LEVEL)
 
+	shape_preview = ShapePreview.new()
+	add_child(shape_preview)
+
 	build_controller = BuildController.new()
 	add_child(build_controller)
-	build_controller.setup(state, cursor, LEVEL)
+	build_controller.setup(state, cursor, shape_preview, LEVEL)
 
 	camera = IsoCamera.new()
 	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)

@@ -17,6 +17,7 @@ func _initialize() -> void:
 	await _check_hover()
 	await _check_camera()
 	await _check_build()
+	await _check_shapes()
 	await _check_clock()
 
 	# Capturas del resaltado: modo celda (args[0]) y modo arista (args[1]).
@@ -169,20 +170,88 @@ func _check_build() -> void:
 	for edge: Edge in expected:
 		all_present = all_present and state.grid.has_wall(edge, 0)
 	_check(all_present, "ocho clics colocan las ocho aristas del perímetro del baño 2x2")
-	_check(_count_walls(state.grid) == 8, "hay exactamente 8 paredes en el mapa (hay %d)" % _count_walls(state.grid))
-	_check(_flood_size(state.grid, origin) == 4, "el baño encierra exactamente 4 celdas")
+	_check(GridTestHelpers.count_walls(state.grid) == 8, "hay exactamente 8 paredes en el mapa (hay %d)" % GridTestHelpers.count_walls(state.grid))
+	_check(GridTestHelpers.flood_fill(state.grid, origin).size() == 4, "el baño encierra exactamente 4 celdas")
 
 	# Arrastrar pinta una línea de paredes; clic derecho quita una (la puerta).
 	await _drag_grid([Vector2(20.5, 10.03), Vector2(21.5, 10.03), Vector2(22.5, 10.03)], MOUSE_BUTTON_LEFT)
-	_check(_count_walls(state.grid) == 11, "arrastrar añade tres paredes (hay %d)" % _count_walls(state.grid))
+	_check(GridTestHelpers.count_walls(state.grid) == 11, "arrastrar añade tres paredes (hay %d)" % GridTestHelpers.count_walls(state.grid))
 	await _click_grid(Vector2(16.5, 10.03), MOUSE_BUTTON_RIGHT)
-	_check(_count_walls(state.grid) == 10, "clic derecho quita una pared (la puerta)")
-	_check(_flood_size(state.grid, origin) > 4, "con la puerta abierta la habitación deja de estar cerrada")
+	_check(GridTestHelpers.count_walls(state.grid) == 10, "clic derecho quita una pared (la puerta)")
+	_check(GridTestHelpers.flood_fill(state.grid, origin).size() > 4, "con la puerta abierta la habitación deja de estar cerrada")
 
 	# Capturas del resultado. Se deja la herramienta de paredes para ver la arista resaltada.
 	await _move_mouse_to_grid(Vector2(18.5, 12.03))
 	_save_args(0)
 	controller.set_tool(BuildController.Tool.NONE)
+
+
+func _check_shapes() -> void:
+	print("== formas")
+	var state: GameState = _main.state
+	var controller: BuildController = _main.build_controller
+	var preview: ShapePreview = _main.shape_preview
+	var walls_before: int = GridTestHelpers.count_walls(state.grid)
+
+	# Suelo con Mayús: rectángulo relleno, con vista previa durante el arrastre.
+	controller.set_tool(BuildController.Tool.FLOOR)
+	await _begin_drag_grid([_center(Vector2i(4, 20)), _center(Vector2i(6, 21))], MOUSE_BUTTON_LEFT, true)
+	_check(preview.is_active() and preview.get_rect() == Rect2i(Vector2i(4, 20), Vector2i(3, 2)), "la vista previa muestra el rectángulo 3x2 mientras se arrastra")
+	_check(state.grid.get_floor_type(Vector2i(4, 20), 0) == CellTypes.FloorType.NONE, "no se construye hasta soltar")
+	await _end_drag_grid(_center(Vector2i(6, 21)), MOUSE_BUTTON_LEFT, true)
+	var filled: int = 0
+	for cell: Vector2i in GridShapes.rect_cells(Rect2i(Vector2i(4, 20), Vector2i(3, 2))):
+		if state.grid.get_floor_type(cell, 0) == CellTypes.FloorType.BASIC:
+			filled += 1
+	_check(filled == 6, "Mayús+arrastrar rellena 6 celdas de suelo (%d)" % filled)
+	_check(not preview.is_active(), "la vista previa desaparece al soltar")
+	_check(state.grid.get_floor_type(Vector2i(7, 20), 0) == CellTypes.FloorType.NONE, "no se sale del rectángulo")
+
+	# Clic derecho con Mayús quita el rectángulo.
+	await _drag_grid([_center(Vector2i(4, 20)), _center(Vector2i(6, 21))], MOUSE_BUTTON_RIGHT, true)
+	_check(state.grid.get_floor_type(Vector2i(5, 20), 0) == CellTypes.FloorType.NONE, "Mayús+clic derecho quita el rectángulo de suelo")
+
+	# Pared con Mayús: perímetro. El arrastre empieza en la esquina contraria (orden inverso).
+	controller.set_tool(BuildController.Tool.WALL)
+	await _drag_grid([_center(Vector2i(9, 21)), _center(Vector2i(8, 20))], MOUSE_BUTTON_LEFT, true)
+	_check(GridTestHelpers.count_walls(state.grid) == walls_before + 8, "Mayús+arrastrar con Pared dibuja el perímetro (8 paredes)")
+	_check(GridTestHelpers.flood_fill(state.grid, Vector2i(8, 20)).size() == 4, "el perímetro 2x2 encierra 4 celdas")
+	await _drag_grid([_center(Vector2i(9, 21)), _center(Vector2i(8, 20))], MOUSE_BUTTON_RIGHT, true)
+	_check(GridTestHelpers.count_walls(state.grid) == walls_before, "Mayús+clic derecho quita el perímetro")
+
+	# Herramienta Habitación: suelo y paredes de un golpe, y vista previa a mitad de arrastre.
+	# La cámara se centra en la zona para que las capturas muestren el resultado.
+	var camera: IsoCamera = _main.camera
+	camera.position = IsoProjection.grid_to_world(Vector2(8, 24))
+	await _frames(3)
+	controller.set_tool(BuildController.Tool.ROOM)
+	await _begin_drag_grid([_center(Vector2i(4, 24)), _center(Vector2i(6, 26))], MOUSE_BUTTON_LEFT)
+	_check(preview.is_active() and preview.get_rect().size == Vector2i(3, 3), "la herramienta Habitación previsualiza 3x3 sin necesitar Mayús")
+	_save_args(3)
+	await _end_drag_grid(_center(Vector2i(6, 26)), MOUSE_BUTTON_LEFT)
+	_check(GridTestHelpers.count_walls(state.grid) == walls_before + 12, "la habitación 3x3 añade 12 paredes")
+	_check(GridTestHelpers.flood_fill(state.grid, Vector2i(5, 25)).size() == 9, "y encierra 9 celdas")
+	var floors_ok: bool = true
+	for cell: Vector2i in GridShapes.rect_cells(Rect2i(Vector2i(4, 24), Vector2i(3, 3))):
+		floors_ok = floors_ok and state.grid.get_floor_type(cell, 0) == CellTypes.FloorType.BASIC
+	_check(floors_ok, "con suelo en todas sus celdas")
+
+	# Esc a mitad de un arrastre cancela sin construir.
+	await _begin_drag_grid([_center(Vector2i(12, 24)), _center(Vector2i(14, 26))], MOUSE_BUTTON_LEFT)
+	await _press_key(KEY_ESCAPE)
+	_check(not preview.is_active(), "Esc cancela la vista previa")
+	await _end_drag_grid(_center(Vector2i(14, 26)), MOUSE_BUTTON_LEFT)
+	_check(state.grid.get_floor_type(Vector2i(13, 25), 0) == CellTypes.FloorType.NONE, "el arrastre cancelado no construye")
+	_check(controller.current_tool == BuildController.Tool.ROOM, "el primer Esc solo cancela el arrastre, la herramienta sigue")
+
+	_save_args(4)
+	# Derribar la habitación con clic derecho.
+	await _drag_grid([_center(Vector2i(4, 24)), _center(Vector2i(6, 26))], MOUSE_BUTTON_RIGHT)
+	_check(GridTestHelpers.count_walls(state.grid) == walls_before, "clic derecho con Habitación derriba paredes")
+	_check(state.grid.get_floor_type(Vector2i(5, 25), 0) == CellTypes.FloorType.NONE, "y suelo")
+	controller.set_tool(BuildController.Tool.NONE)
+	camera.position = IsoProjection.grid_to_world(Vector2(_main.state.grid.size) * 0.5)
+	await _frames(3)
 
 
 func _check_clock() -> void:
@@ -247,36 +316,25 @@ func _click_grid(grid_pos: Vector2, button: MouseButton) -> void:
 
 
 ## Mantiene el botón pulsado mientras el ratón pasa por los puntos indicados.
-func _drag_grid(points: Array[Vector2], button: MouseButton) -> void:
+func _drag_grid(points: Array[Vector2], button: MouseButton, shift: bool = false) -> void:
+	await _begin_drag_grid(points, button, shift)
+	await _end_drag_grid(points[points.size() - 1], button, shift)
+
+
+## Pulsa y mueve por los puntos sin soltar (para poder comprobar cosas a mitad del arrastre).
+func _begin_drag_grid(points: Array[Vector2], button: MouseButton, shift: bool = false) -> void:
 	await _move_mouse_to_grid(points[0])
-	await _send_mouse_button(button, true, _screen_of_grid(points[0]))
+	await _send_mouse_button(button, true, _screen_of_grid(points[0]), shift)
 	for i in range(1, points.size()):
 		await _move_mouse_to_grid(points[i])
-	await _send_mouse_button(button, false, _screen_of_grid(points[points.size() - 1]))
 
 
-func _count_walls(grid: GridMap2D) -> int:
-	var count: int = 0
-	for y in range(grid.size.y + 1):
-		for x in range(grid.size.x + 1):
-			for axis: Edge.Axis in [Edge.Axis.X, Edge.Axis.Y]:
-				var edge := Edge.new(Vector2i(x, y), axis)
-				if grid.is_edge_valid(edge, 0) and grid.has_wall(edge, 0):
-					count += 1
-	return count
+func _end_drag_grid(end_point: Vector2, button: MouseButton, shift: bool = false) -> void:
+	await _send_mouse_button(button, false, _screen_of_grid(end_point), shift)
 
 
-func _flood_size(grid: GridMap2D, start: Vector2i) -> int:
-	var visited: Dictionary = {start: true}
-	var queue: Array[Vector2i] = [start]
-	while not queue.is_empty():
-		var current: Vector2i = queue.pop_back()
-		for offset: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
-			var next: Vector2i = current + offset
-			if not visited.has(next) and not grid.is_blocked_between(current, next, 0):
-				visited[next] = true
-				queue.append(next)
-	return visited.size()
+func _center(cell: Vector2i) -> Vector2:
+	return Vector2(cell) + Vector2(0.5, 0.5)
 
 
 func _save(args: PackedStringArray, index: int) -> void:
@@ -313,8 +371,9 @@ func _send_mouse_motion(screen_pos: Vector2, relative: Vector2 = Vector2.ZERO) -
 	await _frames(2)
 
 
-func _send_mouse_button(button: MouseButton, pressed: bool, screen_pos: Vector2) -> void:
+func _send_mouse_button(button: MouseButton, pressed: bool, screen_pos: Vector2, shift: bool = false) -> void:
 	var event := InputEventMouseButton.new()
+	event.shift_pressed = shift
 	event.button_index = button
 	event.pressed = pressed
 	event.position = screen_pos

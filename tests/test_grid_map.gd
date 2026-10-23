@@ -126,12 +126,12 @@ func test_2x2_room_is_enclosed_by_eight_edges() -> void:
 	]
 	for edge: Edge in perimeter:
 		grid.set_wall(edge, 0, true)
-	assert_eq(_count_walls(grid), 8, "ocho paredes en total")
-	assert_eq(_flood_fill(grid, origin).size(), 4, "la habitación encierra exactamente 4 celdas")
+	assert_eq(GridTestHelpers.count_walls(grid), 8, "ocho paredes en total")
+	assert_eq(GridTestHelpers.flood_fill(grid, origin).size(), 4, "la habitación encierra exactamente 4 celdas")
 
 	# Una puerta (quitar una arista) abre la habitación al resto del mapa.
 	grid.set_wall(perimeter[0], 0, false)
-	assert_true(_flood_fill(grid, origin).size() > 4, "con la puerta abierta el relleno escapa")
+	assert_true(GridTestHelpers.flood_fill(grid, origin).size() > 4, "con la puerta abierta el relleno escapa")
 
 
 func test_room_on_map_corner_uses_border_edges() -> void:
@@ -150,34 +150,4 @@ func test_room_on_map_corner_uses_border_edges() -> void:
 	]
 	for edge: Edge in perimeter:
 		assert_true(grid.set_wall(edge, 0, true), "arista válida en el borde")
-	assert_eq(_flood_fill(grid, origin).size(), 4)
-
-
-## Cuenta todas las paredes de un nivel recorriendo todas las aristas válidas.
-func _count_walls(grid: GridMap2D, level: int = 0) -> int:
-	var count: int = 0
-	for y in range(grid.size.y + 1):
-		for x in range(grid.size.x + 1):
-			for axis: Edge.Axis in [Edge.Axis.X, Edge.Axis.Y]:
-				var edge := Edge.new(Vector2i(x, y), axis)
-				if grid.is_edge_valid(edge, level) and grid.has_wall(edge, level):
-					count += 1
-	return count
-
-
-## Celdas alcanzables desde `start` sin cruzar paredes.
-func _flood_fill(grid: GridMap2D, start: Vector2i, level: int = 0) -> Array[Vector2i]:
-	var visited: Dictionary = {start: true}
-	var queue: Array[Vector2i] = [start]
-	while not queue.is_empty():
-		var current: Vector2i = queue.pop_back()
-		for offset: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
-			var next: Vector2i = current + offset
-			if visited.has(next) or grid.is_blocked_between(current, next, level):
-				continue
-			visited[next] = true
-			queue.append(next)
-	var result: Array[Vector2i] = []
-	for cell: Vector2i in visited.keys():
-		result.append(cell)
-	return result
+	assert_eq(GridTestHelpers.flood_fill(grid, origin).size(), 4)

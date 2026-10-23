@@ -3,7 +3,7 @@ extends PanelContainer
 ## Barra de herramientas de construcción. Solo elige la herramienta del BuildController;
 ## no conoce la simulación.
 
-const HINT_TEXT: String = "Clic izq.: construir   Clic der.: quitar   Esc: salir"
+const HINT_TEXT: String = "Clic izq.: construir   Clic der.: quitar   Mayús+arrastrar: rectángulo   Esc: salir"
 
 var _controller: BuildController
 var _buttons: Dictionary = {} # BuildController.Tool -> Button
@@ -19,6 +19,7 @@ func setup(controller: BuildController) -> void:
 	group.allow_unpress = true
 	_add_tool_button(box, group, "Suelo", BuildController.Tool.FLOOR)
 	_add_tool_button(box, group, "Pared", BuildController.Tool.WALL)
+	_add_tool_button(box, group, "Habitación", BuildController.Tool.ROOM)
 
 	var hint := Label.new()
 	hint.text = HINT_TEXT

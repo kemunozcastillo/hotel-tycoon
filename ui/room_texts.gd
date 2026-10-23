@@ -72,6 +72,13 @@ static func label_lines(room: Room, type: RoomType, status: RoomStatus) -> Array
 	return lines
 
 
+## Línea de ocupación de un dormitorio: quién lo ocupa o que está libre.
+static func occupancy_line(occupant_id: int) -> String:
+	if occupant_id == 0:
+		return "Libre"
+	return "Ocupado por el huésped %d" % occupant_id
+
+
 ## Contenido del panel de información en BBCode.
 static func panel_bbcode(room: Room, type: RoomType, status: RoomStatus) -> String:
 	var title: String = "Sin tipo" if type == null else type.display_name

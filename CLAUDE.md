@@ -62,6 +62,23 @@ Referencias de género: Project Hospital y Prison Architect.
   comportamiento **provisional**: los agentes libres con `wanders` esperan 1-4 minutos y van a
   una celda alcanzable a <= 12 celdas; se sustituirá por necesidades y tareas. Tiene semilla
   (`state.wander.set_seed`) para pruebas reproducibles.
+- **Huéspedes** (`Guest`, `GuestRegistry`, `RoomOccupancy`, `GuestSpawner`, `EntrancePoints`): un
+  `Guest` es la parte "de hotel" de un `Agent` (su cuerpo; `wanders = false`). Ciclo: llega por una
+  **entrada** (marcador que coloca el jugador sobre una celda con suelo; provisional hasta que haya
+  exterior caminable) → camina a la **recepción** (tipo `reception`, la operativa más cercana por
+  coste de ruta) → espera en un puesto propio de la recepción (el mostrador es la celda más lejana a
+  la puerta) → **check-in** de uno en uno, por orden de llegada, 3 min → se le asigna el dormitorio
+  (`bedroom`) **libre, operativo y alcanzable más cercano** (`Pathfinder.reachable_costs` desde donde
+  está) y se **reserva** en `RoomOccupancy` en ese instante (nunca dos huéspedes en una
+  habitación) → se aloja 2-6 h de juego → se va por la entrada, liberando la habitación. Sin
+  dormitorio libre espera en la recepción y se reintenta cuando cambia el mapa, las habitaciones o
+  la ocupación; a los 60 min de espera se marcha enfadado. Si su habitación deja de ser válida
+  (derribada, sin tipo, no operativa) la pierde, recupera la paciencia y busca otra. Sin camino al
+  irse (o sin entrada válida) desaparece en el sitio. Los ids `bedroom` y `reception` están en
+  `GuestRegistry` y deben existir en `data/room_types.json`. `GuestSpawner` hace llegar un huésped
+  cada 15-45 min de juego mientras haya entrada válida y recepción operativa y haya menos de 4
+  esperando. Todos estos tiempos son constantes provisionales con comentario. Sin dinero ni
+  valoraciones todavía. `GameState.tick` ordena: spawner, huéspedes, paseo, agentes, habitaciones.
 - Convención de ejes de la cuadrícula: X crece hacia abajo-derecha en pantalla, Y hacia
   abajo-izquierda (rombo 2:1 de 64x32, `TileSet.TILE_LAYOUT_DIAMOND_DOWN`).
 
@@ -83,13 +100,14 @@ sim/     lógica pura: GridMap2D (niveles, suelo, paredes y puertas por arista),
          GridShapes (rectángulos), BuildCommands, Room / RoomDetector / RoomRegistry,
          RoomType / RoomTypeCatalog / RoomValidator (RoomStatus, RoomCheck),
          MinHeap, Pathfinder, Agent / AgentRegistry / WanderBehavior,
+         EntrancePoints, Guest / GuestRegistry / RoomOccupancy / GuestSpawner,
          GameClock, GameState (raíz de la simulación)
 view/    main.tscn/main.gd (escena principal), IsoProjection (única que conoce el rombo 64x32),
          TilesetFactory (arte provisional por código), LevelView (TileMapLayer), GridLines,
-         IsoCamera, CellCursor, ShapePreview, RoomOverlay, AgentsLayer / AgentView,
+         IsoCamera, CellCursor, ShapePreview, RoomOverlay, EntranceLayer, AgentsLayer / AgentView,
          BuildController
-ui/      BuildToolbar (herramientas, paleta de tipos y herramienta Agente), RoomInfoPanel,
-         AgentInfoPanel, RoomTexts (textos en español de requisitos y problemas), ClockLabel
+ui/      BuildToolbar (herramientas, paleta de tipos, Entrada y Agente), RoomInfoPanel,
+         AgentInfoPanel, HotelStatusLabel, RoomTexts y GuestTexts (textos en español), ClockLabel
          (día, hora y velocidad)
 data/    room_types.json (tipos de habitación y sus requisitos)
 assets/  arte y audio (vacío; el arte provisional se genera por código)
@@ -126,9 +144,13 @@ Código de salida 1 si algún test falla. Para añadir una suite: crear `tests/t
   cámara, construcción (un baño de 2x2 con 8 clics), formas con Mayús, herramienta Habitación,
   puertas, detección de habitaciones, asignación de tipos con clics reales sobre la barra, panel
   de información, herramienta Agente (crear, seleccionar, enviar, bloqueo, Supr), la ordenación
-  de los agentes con las paredes (comprobada por el color real de los píxeles, en los dos ejes) y
-  reloj. Admite hasta once rutas de PNG tras `--` (en el orden en que las guarda cada comprobación;
-  ver las llamadas `_save_args`).
+  de los agentes con las paredes (comprobada por el color real de los píxeles, en los dos ejes), el
+  ciclo completo de un huésped (herramienta Entrada, tipos Recepción y Dormitorio, llegada,
+  check-in, alojamiento, paneles, salida) y reloj. Admite hasta trece rutas de PNG tras `--` (en el
+  orden en que las guarda cada comprobación; ver las llamadas `_save_args`).
+- `tests/hotel_fixture.gd` (`HotelFixture.build(n_dormitorios, semilla, llegadas_automaticas)`):
+  hotel de prueba (vestíbulo, entrada, recepción y N dormitorios con puerta) para los tests de
+  huéspedes. Las llegadas automáticas vienen desactivadas; cada test llama a `guests.arrive`.
 - `tests/capture_view.gd`: captura una escena de demostración con varias habitaciones y agentes
   paseando.
 
@@ -168,6 +190,11 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
   paredes frontales; hará falta un modo corte.
 - Los paneles de información (`RoomInfoPanel`, `AgentInfoPanel`) ignoran el ratón para no tapar la
   construcción.
+- En los tests, una función conectada a una señal de `GameState` no debe capturar el propio
+  `state` (crea un ciclo de referencias y Godot avisa de fugas al cerrar): capturar solo lo
+  necesario (por ejemplo `state.clock`).
+- Un huésped alojado queda dentro de su dormitorio y las paredes frontales lo tapan desde la cámara
+  actual; hará falta un modo corte.
 - En el modo arista, el punto del ratón se interpreta sobre el plano del suelo, no sobre la
   altura de la pared.
 - Hay un solo nivel visible (0). `GridMap2D` y `LevelView` ya reciben el nivel como parámetro.
@@ -189,4 +216,10 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
 - Agentes (herramienta de desarrollo, botón Agente): clic izquierdo sobre suelo libre crea un
   agente y lo selecciona; sobre un agente, lo selecciona. Clic derecho envía al seleccionado a esa
   celda (se dibuja su ruta), `Supr` lo elimina. Los agentes libres pasean solos.
+- Hotel: para que lleguen huéspedes hacen falta una **entrada** (botón Entrada: clic izquierdo
+  marca una celda con suelo, derecho la quita), una habitación de tipo **Recepción** operativa y
+  dormitorios (tipo **Dormitorio**). Arriba a la derecha, debajo del reloj, un resumen indica qué
+  falta o cuántos huéspedes, cuántos esperan y cuántos dormitorios hay libres. Con la herramienta
+  Agente se puede seleccionar a un huésped y ver su estado; el panel de un dormitorio indica quién
+  lo ocupa. Los huéspedes llevan sombrero (y maleta al llegar o irse).
 - Reloj: `Espacio` pausa, `1` / `2` / `3` velocidades.

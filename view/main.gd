@@ -6,6 +6,7 @@ const BACKGROUND_COLOR: Color = Color(0.09, 0.10, 0.12)
 const CAMERA_MARGIN: float = 200.0 # cuánto puede salirse la cámara del mapa
 const HUD_MARGIN: float = 8.0
 const CLOCK_LABEL_WIDTH: float = 240.0
+const STATUS_LABEL_WIDTH: float = 520.0
 
 var state: GameState
 var level_view: LevelView
@@ -21,6 +22,7 @@ var hud: CanvasLayer
 var toolbar: BuildToolbar
 var room_info_panel: RoomInfoPanel
 var clock_label: ClockLabel
+var hotel_status_label: HotelStatusLabel
 
 
 func _ready() -> void:
@@ -45,7 +47,7 @@ func _ready() -> void:
 
 	agents_layer = AgentsLayer.new()
 	add_child(agents_layer)
-	agents_layer.setup(state.agents, level_view.get_entities_root())
+	agents_layer.setup(state.agents, state.guests, level_view.get_entities_root())
 
 	shape_preview = ShapePreview.new()
 	add_child(shape_preview)
@@ -68,11 +70,11 @@ func _ready() -> void:
 
 	room_info_panel = RoomInfoPanel.new()
 	hud.add_child(room_info_panel)
-	room_info_panel.setup(state.rooms)
+	room_info_panel.setup(state.rooms, state.guests.occupancy)
 
 	agent_info_panel = AgentInfoPanel.new()
 	hud.add_child(agent_info_panel)
-	agent_info_panel.setup(state.agents)
+	agent_info_panel.setup(state.agents, state.guests)
 	build_controller.agent_selected.connect(_on_agent_selected)
 
 	# La habitación bajo el cursor se resalta y se describe en el panel.
@@ -90,6 +92,15 @@ func _ready() -> void:
 	clock_label.offset_top = HUD_MARGIN
 	hud.add_child(clock_label)
 	clock_label.setup(state.clock)
+
+	hotel_status_label = HotelStatusLabel.new()
+	hotel_status_label.anchor_left = 1.0
+	hotel_status_label.anchor_right = 1.0
+	hotel_status_label.offset_left = -STATUS_LABEL_WIDTH - HUD_MARGIN
+	hotel_status_label.offset_right = -HUD_MARGIN
+	hotel_status_label.offset_top = HUD_MARGIN + 28.0
+	hud.add_child(hotel_status_label)
+	hotel_status_label.setup(state, LEVEL)
 
 
 func _process(delta: float) -> void:

@@ -20,6 +20,7 @@ func _initialize() -> void:
 	await _check_shapes()
 	await _check_types()
 	await _check_agents()
+	await _check_guests()
 	await _check_clock()
 
 	# Capturas del resaltado: modo celda (args[0]) y modo arista (args[1]).
@@ -514,6 +515,124 @@ func _check_agents() -> void:
 	state.clock.set_speed(GameClock.Speed.X1)
 	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
 	await _frames(3)
+
+
+func _check_guests() -> void:
+	print("== huespedes")
+	var state: GameState = _main.state
+	var controller: BuildController = _main.build_controller
+	var toolbar: BuildToolbar = _main.toolbar
+	var camera: IsoCamera = _main.camera
+	var layer: AgentsLayer = _main.agents_layer
+	var agent_panel: AgentInfoPanel = _main.agent_info_panel
+	var room_panel: RoomInfoPanel = _main.room_info_panel
+	var status: HotelStatusLabel = _main.hotel_status_label
+	var entrance := Vector2i(17, 20)
+	var reception_rect := Rect2i(Vector2i(22, 17), Vector2i(4, 3))
+	var bedroom_a_rect := Rect2i(Vector2i(18, 23), Vector2i(3, 2))
+	var bedroom_b_rect := Rect2i(Vector2i(24, 23), Vector2i(3, 2))
+	var floor_rect := Rect2i(Vector2i(16, 16), Vector2i(15, 12))
+
+	# Las llegadas se disparan a mano para que la comprobación no dependa del azar.
+	state.spawner.enabled = false
+	state.clock.set_speed(GameClock.Speed.PAUSED)
+	state.build.fill_rect_floor(floor_rect, 0)
+	for rect: Rect2i in [reception_rect, bedroom_a_rect, bedroom_b_rect]:
+		state.build.build_room(rect, 0)
+	state.build.place_door(Edge.from_side(Vector2i(22, 18), Edge.Side.WEST), 0)
+	state.build.place_door(Edge.from_side(bedroom_a_rect.position, Edge.Side.NORTH), 0)
+	state.build.place_door(Edge.from_side(bedroom_b_rect.position, Edge.Side.NORTH), 0)
+	camera.position = IsoProjection.grid_to_world(Vector2(22, 21))
+	await _frames(4)
+	_check(status.text.contains("entrada"), "sin entrada, el hotel avisa de que falta: '%s'" % status.text)
+
+	# Herramienta Entrada: colocar, quitar y volver a colocar con clics reales.
+	await _click_button(toolbar.get_tool_button(BuildController.Tool.ENTRANCE))
+	_check(controller.current_tool == BuildController.Tool.ENTRANCE, "el botón Entrada activa la herramienta")
+	await _click_grid(_center(entrance), MOUSE_BUTTON_LEFT)
+	_check(state.entrances.has(entrance, 0), "clic izquierdo marca la entrada")
+	await _click_grid(_center(Vector2i(2, 2)), MOUSE_BUTTON_LEFT)
+	_check(state.entrances.get_all(0).size() == 1, "una celda sin suelo no se puede marcar")
+	await _click_grid(_center(entrance), MOUSE_BUTTON_RIGHT)
+	_check(not state.entrances.has(entrance, 0), "clic derecho la quita")
+	await _click_grid(_center(entrance), MOUSE_BUTTON_LEFT)
+	_check(state.entrances.has(entrance, 0), "y se puede volver a marcar")
+	await _frames(3)
+	_check(status.text.contains("recepción"), "con entrada pero sin recepción, avisa: '%s'" % status.text)
+
+	# Tipos de habitación con los botones de la paleta (Recepción y Dormitorio).
+	await _click_button(toolbar.get_type_button(&"reception"))
+	await _click_grid(_center(Vector2i(24, 18)), MOUSE_BUTTON_LEFT)
+	await _click_button(toolbar.get_type_button(&"bedroom"))
+	await _click_grid(_center(Vector2i(19, 23)), MOUSE_BUTTON_LEFT)
+	state.rooms.set_room_type(state.rooms.get_room_at(bedroom_b_rect.position, 0).id, GuestRegistry.BEDROOM_TYPE)
+	await _frames(3)
+	_check(state.guests.has_operational_reception(0), "la recepción asignada es operativa")
+	_check(status.text == "Huéspedes 0  ·  En espera 0  ·  Dormitorios libres 2/2", "resumen del hotel listo: '%s'" % status.text)
+
+	# Llega un huésped (reloj en pausa para seleccionarlo en la entrada).
+	await _click_button(toolbar.get_tool_button(BuildController.Tool.AGENT))
+	var guest: Guest = state.guests.arrive(0)
+	_check(guest != null and guest.state == Guest.State.ARRIVING, "llega un huésped")
+	await _frames(3)
+	_check(layer.get_view_count() == 1, "con su vista")
+	await _click_grid(_center(entrance), MOUSE_BUTTON_LEFT)
+	_check(controller.selected_agent_id == guest.agent_id, "la herramienta Agente lo selecciona en la entrada")
+	_check(agent_panel.visible and agent_panel.get_plain_text().contains("Huésped %d" % guest.id) and agent_panel.get_plain_text().contains("Llega a la recepción"), "el panel muestra su estado de huésped: '%s'" % agent_panel.get_plain_text())
+	_check(status.text.contains("Huéspedes 1"), "el resumen cuenta al huésped")
+
+	# Se pone en marcha el reloj: va a la recepción, hace check-in y se aloja.
+	state.clock.set_speed(GameClock.Speed.X3)
+	await _frames(70)
+	_save_args(11)
+	var arrived_ok: bool = await _wait_until(func() -> bool: return guest.state == Guest.State.STAYING, 1500)
+	_check(arrived_ok, "completa llegada, check-in y asignación hasta alojarse (estado %d)" % guest.state)
+	_check(guest.room_id != 0 and state.guests.occupancy.occupant_of(guest.room_id) == guest.id, "con un dormitorio reservado a su nombre")
+	_check(state.guests.count_bedrooms(0) == Vector2i(1, 2), "queda un dormitorio libre de dos")
+	await _frames(3)
+	_check(status.text == "Huéspedes 1  ·  En espera 0  ·  Dormitorios libres 1/2", "el resumen se actualiza: '%s'" % status.text)
+	_check(agent_panel.get_plain_text().contains("Alojado en la habitación %d" % guest.room_id), "el panel del huésped: '%s'" % agent_panel.get_plain_text())
+
+	# El panel de la habitación indica quién la ocupa y cuál está libre.
+	var occupied: Room = state.rooms.get_room(guest.room_id)
+	var free_room: Room = state.rooms.get_room_at(bedroom_a_rect.position, 0)
+	if free_room.id == occupied.id:
+		free_room = state.rooms.get_room_at(bedroom_b_rect.position, 0)
+	await _move_mouse_to_grid(_center(occupied.cells[0]))
+	_check(room_panel.visible and room_panel.get_plain_text().contains("Ocupado por el huésped %d" % guest.id), "la habitación ocupada lo indica: '%s'" % room_panel.get_plain_text())
+	_save_args(12)
+	await _move_mouse_to_grid(_center(free_room.cells[0]))
+	_check(room_panel.get_plain_text().contains("Libre"), "la otra aparece libre")
+
+	# Se avanza la simulación hasta que termina su estancia (a base de pasos grandes).
+	for i in range(150):
+		state.tick(5.0)
+	await _frames(4)
+	_check(state.guests.get_guest_count() == 0 and state.guests.total_left_happy == 1, "termina su estancia y se va contento")
+	_check(layer.get_view_count() == 0 and not agent_panel.visible, "su vista y su panel desaparecen")
+	_check(status.text == "Huéspedes 0  ·  En espera 0  ·  Dormitorios libres 2/2", "los dormitorios vuelven a estar libres: '%s'" % status.text)
+
+	# Limpieza.
+	controller.set_tool(BuildController.Tool.NONE)
+	for placed in state.agents.get_agents():
+		state.agents.remove(placed.id)
+	state.entrances.remove(entrance, 0)
+	for rect: Rect2i in [reception_rect, bedroom_a_rect, bedroom_b_rect]:
+		state.build.demolish_room(rect, 0)
+	state.build.clear_rect_floor(floor_rect, 0)
+	state.clock.set_speed(GameClock.Speed.X1)
+	state.clock.total_minutes = GameClock.START_MINUTES # el avance rápido llevó el reloj al día 2
+	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
+	await _frames(3)
+
+
+## Espera fotogramas hasta que se cumpla la condición; devuelve false si se agotan.
+func _wait_until(condition: Callable, max_frames: int) -> bool:
+	for i in range(max_frames):
+		if condition.call():
+			return true
+		await _frames(1)
+	return condition.call()
 
 
 ## Avanza fotogramas hasta que el agente deja de caminar, comprobando en cada uno que está sobre

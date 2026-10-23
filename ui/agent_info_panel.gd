@@ -6,12 +6,14 @@ const PANEL_WIDTH: float = 300.0
 const MARGIN: float = 8.0
 
 var _registry: AgentRegistry
+var _guests: GuestRegistry
 var _label: Label
 var _agent_id: int = 0
 
 
-func setup(registry: AgentRegistry) -> void:
+func setup(registry: AgentRegistry, guests: GuestRegistry) -> void:
 	_registry = registry
+	_guests = guests
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# Anclado abajo a la derecha; al crecer el contenido el panel sube.
 	anchor_left = 1.0
@@ -44,8 +46,10 @@ func get_plain_text() -> String:
 	return _label.text
 
 
-## Texto del estado de un agente.
-static func describe(agent: Agent) -> String:
+## Texto del estado de un agente; si es un huésped, el de su estancia en lugar del de su paseo.
+static func describe(agent: Agent, guest: Guest = null) -> String:
+	if guest != null:
+		return GuestTexts.describe(guest) + "\nClic der.: enviarlo a una celda   Supr: eliminarlo"
 	var text: String = "Agente %d\n" % agent.id
 	match agent.state:
 		Agent.State.WALKING:
@@ -63,10 +67,18 @@ func _on_agent_changed(agent: Agent) -> void:
 		_refresh()
 
 
+func _process(_delta: float) -> void:
+	# Los tiempos de un huésped (espera, estancia) cambian con el reloj, sin ninguna señal.
+	if visible and _guests.get_guest_by_agent(_agent_id) != null:
+		_refresh()
+
+
 func _refresh() -> void:
 	var agent: Agent = _registry.get_agent(_agent_id)
 	if agent == null:
 		visible = false
 		return
-	_label.text = describe(agent)
+	var new_text: String = describe(agent, _guests.get_guest_by_agent(agent.id))
+	if new_text != _label.text:
+		_label.text = new_text
 	visible = true

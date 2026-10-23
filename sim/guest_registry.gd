@@ -117,6 +117,14 @@ func count_in_state(state: Guest.State) -> int:
 	return count
 
 
+## true si hay alguna recepción operativa en el nivel (sin ella no pueden llegar huéspedes).
+func has_operational_reception(level: int) -> bool:
+	for room: Room in _rooms.get_rooms(level):
+		if room.type_id == RECEPTION_TYPE and _rooms.get_status(room).is_operational():
+			return true
+	return false
+
+
 ## Dormitorios operativos del nivel y cuántos de ellos están libres.
 func count_bedrooms(level: int) -> Vector2i:
 	var total: int = 0

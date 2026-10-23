@@ -10,6 +10,7 @@ const CLOCK_LABEL_WIDTH: float = 240.0
 var state: GameState
 var level_view: LevelView
 var camera: IsoCamera
+var room_overlay: RoomOverlay
 var cursor: CellCursor
 var shape_preview: ShapePreview
 var build_controller: BuildController
@@ -25,6 +26,10 @@ func _ready() -> void:
 	level_view = LevelView.new()
 	add_child(level_view)
 	level_view.setup(state.grid, LEVEL)
+
+	room_overlay = RoomOverlay.new()
+	level_view.add_ground_overlay(room_overlay)
+	room_overlay.setup(state.rooms, LEVEL)
 
 	cursor = CellCursor.new()
 	add_child(cursor)

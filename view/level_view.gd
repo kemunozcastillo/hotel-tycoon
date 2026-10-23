@@ -36,6 +36,12 @@ func setup(grid: GridMap2D, level: int) -> void:
 	_redraw_all()
 
 
+## Añade un nodo que se dibuja sobre el suelo pero por debajo de las paredes.
+func add_ground_overlay(node: Node2D) -> void:
+	add_child(node)
+	move_child(node, _walls.get_index())
+
+
 func _redraw_all() -> void:
 	_ground.clear()
 	_walls.clear()

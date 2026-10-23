@@ -25,16 +25,35 @@ func _initialize() -> void:
 
 
 func _build_demo(state: GameState) -> void:
-	# Baño de 2x2 en (12,12): 8 aristas, con puerta en la arista norte derecha.
+	# Baño de 2x2 en (12,12) con puerta en la arista norte derecha.
 	_room(state, Vector2i(12, 12), Vector2i(2, 2))
-	state.build.remove_wall(Edge.from_side(Vector2i(13, 12), Edge.Side.NORTH), 0)
-	# Sala de 5x3 al lado, con puerta en el oeste.
+	state.build.place_door(Edge.from_side(Vector2i(13, 12), Edge.Side.NORTH), 0)
+	# Sala de 5x3 al lado, con puerta en el oeste y una puerta compartida con un cuarto contiguo.
 	_room(state, Vector2i(16, 12), Vector2i(5, 3))
-	state.build.remove_wall(Edge.from_side(Vector2i(16, 13), Edge.Side.WEST), 0)
-	# Un pasillo de suelo suelto y un tramo de pared sin suelo.
+	state.build.place_door(Edge.from_side(Vector2i(16, 13), Edge.Side.WEST), 0)
+	_room(state, Vector2i(16, 15), Vector2i(3, 2))
+	state.build.place_door(Edge.from_side(Vector2i(17, 15), Edge.Side.NORTH), 0)
+	# Habitación en L (3 celdas) hecha a mano, con suelo.
+	var a := Vector2i(8, 16)
+	var b := Vector2i(9, 16)
+	var c := Vector2i(8, 17)
+	var perimeter: Array[Edge] = [
+		Edge.from_side(a, Edge.Side.NORTH), Edge.from_side(b, Edge.Side.NORTH),
+		Edge.from_side(b, Edge.Side.EAST), Edge.from_side(b, Edge.Side.SOUTH),
+		Edge.from_side(c, Edge.Side.EAST), Edge.from_side(c, Edge.Side.SOUTH),
+		Edge.from_side(a, Edge.Side.WEST), Edge.from_side(c, Edge.Side.WEST),
+	]
+	for edge: Edge in perimeter:
+		state.build.place_wall(edge, 0)
+	for cell: Vector2i in [a, b, c]:
+		state.build.place_floor(cell, 0)
+	# Habitación a la que le falta suelo en una celda.
+	_room(state, Vector2i(12, 17), Vector2i(3, 2))
+	state.build.remove_floor(Vector2i(13, 18), 0)
+	# Un pasillo de suelo suelto y un tramo de pared sin suelo (no forman habitación).
 	for x in range(12, 21):
-		state.build.place_floor(Vector2i(x, 16), 0)
-	for x in range(8, 11):
+		state.build.place_floor(Vector2i(x, 20), 0)
+	for x in range(22, 25):
 		state.build.place_wall(Edge.from_side(Vector2i(x, 14), Edge.Side.NORTH), 0)
 
 

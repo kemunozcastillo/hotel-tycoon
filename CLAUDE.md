@@ -19,9 +19,18 @@ Referencias de género: Project Hospital y Prison Architect.
 
 - Una celda es un `Vector2i`; el piso (nivel) es un `int` aparte. Hoy solo existe el nivel 0,
   pero la API (`GridMap2D`) ya admite varios niveles.
-- **Suelo** por celda. **Paredes por arista** (no por celda), para que una habitación de 2x2
-  ocupe 2x2. Cada celda "posee" su arista norte (eje X) y su arista oeste (eje Y); las aristas
-  sur y este son las de la celda vecina. Ver `sim/edge.gd`.
+- **Suelo** por celda. **Paredes y puertas por arista** (no por celda), para que una habitación
+  de 2x2 ocupe 2x2. Cada celda "posee" su arista norte (eje X) y su arista oeste (eje Y); las
+  aristas sur y este son las de la celda vecina. Ver `sim/edge.gd`. Una arista es
+  `CellTypes.EdgeType` `NONE`, `WALL` o `DOOR`.
+- **Dos nociones de bloqueo** en `GridMap2D`: `is_blocked_between` (movimiento: solo lo bloquea
+  una pared, la puerta se cruza) e `is_room_boundary` (separa habitaciones: pared o puerta).
+- **Habitaciones**: derivadas del mapa, nunca se editan a mano. `RoomDetector` (función pura)
+  encuentra las regiones cerradas; `RoomRegistry` las guarda con **ids estables** (una habitación
+  que se amplía o se divide conserva el id en la parte con más celdas en común), recalcula
+  de forma perezosa (el mapa solo marca "sucio"; `GameState.tick` llama a `refresh()`) y emite
+  `room_created/changed/removed`. Una región cerrada sin suelo completo también es habitación
+  (`has_complete_floor = false`).
 - Convención de ejes de la cuadrícula: X crece hacia abajo-derecha en pantalla, Y hacia
   abajo-izquierda (rombo 2:1 de 64x32, `TileSet.TILE_LAYOUT_DIAMOND_DOWN`).
 
@@ -39,11 +48,12 @@ Referencias de género: Project Hospital y Prison Architect.
 ## Estructura de carpetas
 
 ```
-sim/     lógica pura: GridMap2D (niveles, suelo, paredes por arista), Edge, LevelLayer,
-         BuildCommands, GameClock, GameState (raíz de la simulación)
+sim/     lógica pura: GridMap2D (niveles, suelo, paredes y puertas por arista), Edge, LevelLayer,
+         GridShapes (rectángulos), BuildCommands, Room / RoomDetector / RoomRegistry,
+         GameClock, GameState (raíz de la simulación)
 view/    main.tscn/main.gd (escena principal), IsoProjection (única que conoce el rombo 64x32),
          TilesetFactory (arte provisional por código), LevelView (TileMapLayer), GridLines,
-         IsoCamera, CellCursor, BuildController
+         IsoCamera, CellCursor, ShapePreview, RoomOverlay, BuildController
 ui/      BuildToolbar (herramientas), ClockLabel (día, hora y velocidad)
 data/    datos del juego (vacío por ahora)
 assets/  arte y audio (vacío; el arte provisional se genera por código)
@@ -77,14 +87,18 @@ Código de salida 1 si algún test falla. Para añadir una suite: crear `tests/t
 ### Verificación con ventana (necesita GPU, no es headless)
 
 - `tests/interaction_check.gd`: inyecta ratón y teclado en la escena real y comprueba hover,
-  cámara, construcción (incluido un baño de 2x2 con 8 clics) y reloj. Admite hasta tres rutas
-  de PNG tras `--`: resultado de construir, resaltado de celda y resaltado de arista.
-- `tests/capture_view.gd`: captura una escena de demostración con habitaciones.
+  cámara, construcción (un baño de 2x2 con 8 clics), formas con Mayús, herramienta Habitación,
+  puertas, detección de habitaciones y reloj. Admite hasta cinco rutas de PNG tras `--`:
+  construcción, resaltado de celda, resaltado de arista, vista previa de forma y puerta.
+- `tests/capture_view.gd`: captura una escena de demostración con varias habitaciones.
 
 ```bash
-"$GODOT" --path . --script res://tests/interaction_check.gd -- build.png cell.png edge.png
+"$GODOT" --path . --script res://tests/interaction_check.gd -- build.png cell.png edge.png preview.png door.png
 "$GODOT" --path . --script res://tests/capture_view.gd -- demo.png
 ```
+
+Mientras corre `interaction_check.gd` conviene no mover el ratón sobre su ventana: los eventos
+reales se mezclan con los inyectados y pueden dar fallos falsos (si pasa, repetir).
 
 Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCursor` guarda la
 última posición recibida por `_input` en vez de consultar el ratón del viewport.
@@ -93,8 +107,14 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
 
 - `IsoProjection` coincide con `TileMapLayer.map_to_local()` (la caja de la celda (0,0) empieza en
   el origen); `tests/test_iso_projection.gd` lo comprueba contra un `TileMapLayer` real.
-- Las paredes de la vista viven en una sola `TileMapLayer` con `y_sort_enabled`; cada celda dibuja
-  las aristas que posee (norte = X, oeste = Y) con un tile de tres variantes: X, Y o ambas.
+- Las paredes y puertas de la vista viven en una sola `TileMapLayer` con `y_sort_enabled`; cada
+  celda dibuja las aristas que posee (norte = X, oeste = Y) con un tile por combinación de tipos
+  (`TilesetFactory.wall_coords`: 3 x 3 menos "nada y nada" = 8 tiles).
+- El tinte de habitaciones (`RoomOverlay`) se inserta entre el suelo y las paredes
+  (`LevelView.add_ground_overlay`) para no teñir las paredes; su etiqueta flota por encima.
+- Los comandos de forma (`fill_rect_floor`, `outline_rect_walls`, `build_room`, ...) solo añaden
+  lo que falta, respetan las puertas existentes y devuelven cuántas celdas o aristas cambiaron.
+  `demolish_room` sí quita puertas.
 - En el modo arista, el punto del ratón se interpreta sobre el plano del suelo, no sobre la
   altura de la pared.
 - Hay un solo nivel visible (0). `GridMap2D` y `LevelView` ya reciben el nivel como parámetro.
@@ -104,6 +124,9 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
 ## Controles
 
 - Cámara: `WASD` / flechas, botón central + arrastrar, rueda para zoom.
-- Construcción: elegir herramienta en la barra (Suelo / Pared); clic izquierdo coloca,
-  clic derecho quita, se puede arrastrar. `Esc` deselecciona la herramienta.
+- Construcción: elegir herramienta en la barra (Suelo / Pared / Puerta / Habitación); clic
+  izquierdo coloca, clic derecho quita. Suelo y Pared pintan arrastrando; con `Mayús` pulsado al
+  empezar, el arrastre define un rectángulo (suelo relleno o perímetro de paredes). Habitación
+  siempre usa rectángulo y crea suelo y paredes (clic derecho la derriba). `Esc` cancela el
+  arrastre en curso y, si no hay, deselecciona la herramienta.
 - Reloj: `Espacio` pausa, `1` / `2` / `3` velocidades.

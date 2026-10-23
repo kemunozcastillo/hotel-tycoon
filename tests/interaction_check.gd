@@ -244,6 +244,12 @@ func _check_shapes() -> void:
 	_check(state.grid.get_floor_type(Vector2i(13, 25), 0) == CellTypes.FloorType.NONE, "el arrastre cancelado no construye")
 	_check(controller.current_tool == BuildController.Tool.ROOM, "el primer Esc solo cancela el arrastre, la herramienta sigue")
 
+	# El registro detecta la habitación recién construida y la vista la muestra.
+	var overlay: RoomOverlay = _main.room_overlay
+	var built_room: Room = state.rooms.get_room_at(Vector2i(5, 25), 0)
+	_check(built_room != null and built_room.get_area() == 9 and built_room.is_rectangular(), "se detecta la habitación 3x3 recién construida")
+	_check(overlay.get_room_count() == _count_rooms(state) and overlay.get_room_count() >= 1, "la vista de habitaciones refleja el registro (%d)" % overlay.get_room_count())
+
 	# Puertas: la herramienta Puerta sustituye una pared por una puerta transitable.
 	controller.set_tool(BuildController.Tool.DOOR)
 	var door_edge: Edge = Edge.from_side(Vector2i(5, 26), Edge.Side.SOUTH)
@@ -271,16 +277,24 @@ func _check_shapes() -> void:
 	# Una puerta puesta de nuevo se derriba junto con la habitación.
 	await _click_grid(Vector2(5.5, 26.97), MOUSE_BUTTON_LEFT)
 	_check(state.grid.has_door(door_edge, 0), "(control) puerta colocada otra vez")
+	state.rooms.refresh()
+	_check(state.rooms.get_room_at(Vector2i(5, 25), 0).doors.size() == 1, "la habitación registra su puerta")
 	controller.set_tool(BuildController.Tool.ROOM)
 
 	# Derribar la habitación con clic derecho.
 	await _drag_grid([_center(Vector2i(4, 24)), _center(Vector2i(6, 26))], MOUSE_BUTTON_RIGHT)
 	_check(GridTestHelpers.count_walls(state.grid) == walls_before, "clic derecho con Habitación derriba paredes")
 	_check(GridTestHelpers.count_edges(state.grid, CellTypes.EdgeType.DOOR) == 0, "y puertas")
+	state.rooms.refresh()
+	_check(state.rooms.get_room_at(Vector2i(5, 25), 0) == null, "la habitación derribada desaparece del registro")
 	_check(state.grid.get_floor_type(Vector2i(5, 25), 0) == CellTypes.FloorType.NONE, "y suelo")
 	controller.set_tool(BuildController.Tool.NONE)
 	camera.position = IsoProjection.grid_to_world(Vector2(_main.state.grid.size) * 0.5)
 	await _frames(3)
+
+
+func _count_rooms(state: GameState) -> int:
+	return state.rooms.get_rooms(0).size()
 
 
 func _check_clock() -> void:

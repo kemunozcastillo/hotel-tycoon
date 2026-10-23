@@ -15,7 +15,9 @@ static func bedroom_rect(index: int) -> Rect2i:
 	return Rect2i(Vector2i(3 + index * 5, 9), Vector2i(3, 2))
 
 
-static func build(bedroom_count: int = 2, seed_value: int = 1) -> GameState:
+## Las llegadas automáticas están desactivadas por defecto: cada test llama a `guests.arrive` a su
+## ritmo. Con `auto_arrivals` se activan.
+static func build(bedroom_count: int = 2, seed_value: int = 1, auto_arrivals: bool = false) -> GameState:
 	var state := GameState.new(MAP_SIZE)
 	state.build.fill_rect_floor(Rect2i(Vector2i.ZERO, MAP_SIZE), 0)
 	state.build.build_room(RECEPTION_RECT, 0)
@@ -30,6 +32,8 @@ static func build(bedroom_count: int = 2, seed_value: int = 1) -> GameState:
 		state.rooms.set_room_type(bedroom(state, i).id, GuestRegistry.BEDROOM_TYPE)
 	state.guests.set_seed(seed_value)
 	state.wander.set_seed(seed_value)
+	state.spawner.set_seed(seed_value)
+	state.spawner.enabled = auto_arrivals
 	return state
 
 

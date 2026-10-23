@@ -41,6 +41,11 @@ signal guest_arrived(guest: Guest)
 signal guest_state_changed(guest: Guest)
 ## A un huésped se le asignó dormitorio (acaba de terminar el check-in o recuperó uno).
 signal guest_checked_in(guest: Guest)
+## Un huésped terminó su estancia (se va contento): es el momento de cobrarle el resto.
+signal guest_stay_completed(guest: Guest)
+## Un huésped pierde su dormitorio antes de terminar la estancia (derribado, sin tipo, no operativo
+## o inalcanzable). Se emite con la habitación todavía asignada.
+signal guest_room_lost(guest: Guest)
 ## Un huésped se fue (el objeto conserva su último estado y `left_unhappy`).
 signal guest_left(guest: Guest)
 
@@ -339,6 +344,7 @@ func _try_assign_room(guest: Guest) -> bool:
 ## El huésped pierde su habitación (ya no es válida o no puede llegar a ella) y vuelve a esperar
 ## otra, con la paciencia renovada.
 func _revoke_room(guest: Guest) -> void:
+	guest_room_lost.emit(guest) # antes de soltar la habitación: quien escuche aún la ve asignada
 	occupancy.release_guest(guest.id)
 	guest.room_id = 0
 	guest.waited_minutes = 0.0
@@ -372,6 +378,9 @@ func _start_next_check_ins() -> void:
 ## camino hasta ella, desaparece en el sitio.
 func _start_leaving(guest: Guest, unhappy: bool) -> void:
 	guest.left_unhappy = unhappy
+	if not unhappy:
+		guest.stay_completed = true
+		guest_stay_completed.emit(guest)
 	occupancy.release_guest(guest.id)
 	guest.room_id = 0
 	_set_state(guest, Guest.State.LEAVING)

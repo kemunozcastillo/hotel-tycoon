@@ -18,6 +18,7 @@ var wander: WanderBehavior
 var entrances: EntrancePoints
 var guests: GuestRegistry
 var spawner: GuestSpawner
+var economy: Economy
 
 
 ## `catalog` permite probar con otros tipos; por defecto se carga data/room_types.json.
@@ -39,6 +40,7 @@ func _init(map_size: Vector2i = DEFAULT_MAP_SIZE, catalog: RoomTypeCatalog = nul
 	entrances = EntrancePoints.new(grid)
 	guests = GuestRegistry.new(grid, agents, rooms, entrances)
 	spawner = GuestSpawner.new(guests)
+	economy = Economy.new(rules, ledger, inventory, rooms, room_types, grid, guests, clock)
 
 
 ## Avanza la simulación con el tiempo real transcurrido (en segundos).
@@ -49,3 +51,4 @@ func tick(real_delta: float) -> void:
 	wander.tick(game_minutes)
 	agents.tick(game_minutes)
 	rooms.refresh()
+	economy.update()

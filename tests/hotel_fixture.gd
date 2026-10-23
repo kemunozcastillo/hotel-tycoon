@@ -16,9 +16,11 @@ static func bedroom_rect(index: int) -> Rect2i:
 
 
 ## Las llegadas automáticas están desactivadas por defecto: cada test llama a `guests.arrive` a su
-## ritmo. Con `auto_arrivals` se activan.
-static func build(bedroom_count: int = 2, seed_value: int = 1, auto_arrivals: bool = false) -> GameState:
-	var state := GameState.new(MAP_SIZE)
+## ritmo. Con `auto_arrivals` se activan. Con `economy_rules` el hotel se construye con esas reglas
+## (por defecto no cuesta nada, así que el saldo empieza en 0 y no se mueve al construir).
+static func build(bedroom_count: int = 2, seed_value: int = 1, auto_arrivals: bool = false,
+		economy_rules: EconomyRules = null) -> GameState:
+	var state := GameState.new(MAP_SIZE, null, economy_rules)
 	state.build.fill_rect_floor(Rect2i(Vector2i.ZERO, MAP_SIZE), 0)
 	state.build.build_room(RECEPTION_RECT, 0)
 	state.build.place_door(Edge.from_side(Vector2i(8, 3), Edge.Side.WEST), 0)

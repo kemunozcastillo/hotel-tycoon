@@ -35,12 +35,13 @@ func _init(start_money: int, clock: GameClock) -> void:
 	_clock = clock
 
 
-## Anota un movimiento (importe con signo). Un importe 0 no se anota.
-func record(category: Category, amount: int, note: String = "") -> void:
+## Anota un movimiento (importe con signo). Un importe 0 no se anota. Se archiva en el día actual
+## del reloj, salvo que se indique otro `day` (para cobros atrasados que se saltaron varios días).
+func record(category: Category, amount: int, note: String = "", day_override: int = -1) -> void:
 	if amount == 0:
 		return
 	balance += amount
-	var day: int = _clock.get_day()
+	var day: int = day_override if day_override > 0 else _clock.get_day()
 	if not _days.has(day):
 		var totals := PackedInt64Array()
 		totals.resize(CATEGORY_COUNT)

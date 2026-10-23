@@ -37,6 +37,12 @@ var blocked_minutes: float = 0.0
 var timer_minutes: float = 0.0
 ## true si se va sin haber sido alojado (se cansó de esperar o perdió su habitación).
 var left_unhappy: bool = false
+## Precio de la estancia, fijado al asignarle dormitorio (lo rellena Economy).
+var stay_price: int = 0
+## Anticipo cobrado al hacer el check-in; 0 si no ha pagado o ya se le devolvió.
+var deposit_paid: int = 0
+## true cuando terminó su estancia (ya pagó el resto).
+var stay_completed: bool = false
 
 
 func _init(p_id: int, p_agent_id: int, p_level: int) -> void:

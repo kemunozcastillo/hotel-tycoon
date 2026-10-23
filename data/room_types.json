@@ -8,7 +8,10 @@
 			"max_area": 20,
 			"min_short_side": 2,
 			"min_doors": 1,
-			"requires_complete_floor": true
+			"requires_complete_floor": true,
+			"stay_price": 40,
+			"stay_price_per_extra_cell": 5,
+			"daily_upkeep": 20
 		},
 		{
 			"id": "bathroom",
@@ -18,7 +21,8 @@
 			"max_area": 9,
 			"min_short_side": 2,
 			"min_doors": 1,
-			"requires_complete_floor": true
+			"requires_complete_floor": true,
+			"daily_upkeep": 10
 		},
 		{
 			"id": "reception",
@@ -28,7 +32,8 @@
 			"max_area": 40,
 			"min_short_side": 2,
 			"min_doors": 1,
-			"requires_complete_floor": true
+			"requires_complete_floor": true,
+			"daily_upkeep": 30
 		}
 	]
 }

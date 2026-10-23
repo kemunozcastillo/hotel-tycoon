@@ -16,6 +16,13 @@ var min_short_side: int = 0
 ## Puertas mínimas en el perímetro (0 = sin requisito).
 var min_doors: int = 0
 var requires_complete_floor: bool = true
+## Precio de una estancia en una habitación de este tipo (solo los dormitorios lo usan; 0 = no se
+## alquila).
+var stay_price: int = 0
+## Extra por cada celda por encima de `min_area`: las habitaciones grandes rinden más.
+var stay_price_per_extra_cell: int = 0
+## Mantenimiento diario de cada habitación de este tipo (se paga siempre, sea o no operativa).
+var daily_upkeep: int = 0
 
 
 ## Crea un tipo a partir de un diccionario del JSON. Si es inválido devuelve null y añade los
@@ -47,6 +54,9 @@ static func from_dict(data: Dictionary, errors: Array[String]) -> RoomType:
 	type.max_area = _read_int(data, "max_area", 0, 0, label, errors)
 	type.min_short_side = _read_int(data, "min_short_side", 0, 0, label, errors)
 	type.min_doors = _read_int(data, "min_doors", 0, 0, label, errors)
+	type.stay_price = _read_int(data, "stay_price", 0, 0, label, errors)
+	type.stay_price_per_extra_cell = _read_int(data, "stay_price_per_extra_cell", 0, 0, label, errors)
+	type.daily_upkeep = _read_int(data, "daily_upkeep", 0, 0, label, errors)
 
 	var raw_floor: Variant = data.get("requires_complete_floor", true)
 	if typeof(raw_floor) != TYPE_BOOL:

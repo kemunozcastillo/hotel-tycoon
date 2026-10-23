@@ -34,6 +34,32 @@ func test_default_bathroom_and_bedroom_values() -> void:
 	assert_eq(bedroom.max_area, 20)
 
 
+func test_default_money_values_of_each_type() -> void:
+	var catalog: RoomTypeCatalog = RoomTypeCatalog.load_default()
+	var bedroom: RoomType = catalog.get_type(&"bedroom")
+	assert_eq(bedroom.stay_price, 40)
+	assert_eq(bedroom.stay_price_per_extra_cell, 5)
+	assert_eq(bedroom.daily_upkeep, 20)
+	var bathroom: RoomType = catalog.get_type(&"bathroom")
+	assert_eq(bathroom.stay_price, 0, "un baño no se alquila")
+	assert_eq(bathroom.daily_upkeep, 10)
+	var reception: RoomType = catalog.get_type(&"reception")
+	assert_eq(reception.stay_price, 0)
+	assert_eq(reception.daily_upkeep, 30)
+
+
+func test_money_fields_default_to_zero_and_must_be_non_negative_integers() -> void:
+	var plain: RoomTypeCatalog = RoomTypeCatalog.parse(_wrap(['{"id": "a", "name": "A"}']))
+	var type: RoomType = plain.get_type(&"a")
+	assert_eq(type.stay_price, 0)
+	assert_eq(type.stay_price_per_extra_cell, 0)
+	assert_eq(type.daily_upkeep, 0)
+	for extra: String in [', "stay_price": -1', ', "daily_upkeep": 1.5', ', "stay_price_per_extra_cell": "poco"']:
+		var catalog: RoomTypeCatalog = RoomTypeCatalog.parse(_wrap(['{"id": "x", "name": "X"' + extra + '}']))
+		assert_eq(catalog.get_types().size(), 0, "se rechaza %s" % extra)
+		assert_true(catalog.warnings.size() >= 1)
+
+
 func test_types_keep_file_order_and_lookup_unknown_is_null() -> void:
 	var catalog: RoomTypeCatalog = RoomTypeCatalog.load_default()
 	var ids: Array[StringName] = []

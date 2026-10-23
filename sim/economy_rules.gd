@@ -24,6 +24,9 @@ var sell_rate_used: float = 0.85
 var new_window_minutes: float = 60.0
 ## Fracción del precio de una estancia que se cobra al hacer el check-in.
 var deposit_rate: float = 0.5
+## Si es false, los huéspedes no pagan y las habitaciones no cuestan mantenimiento (lo usan las
+## reglas sin costes). Construir ya cuesta lo que digan los precios.
+var charges_enabled: bool = true
 
 ## Problemas encontrados al cargar (vacío si todo estaba bien).
 var warnings: Array[String] = []
@@ -36,6 +39,7 @@ static func without_costs() -> EconomyRules:
 	rules.floor_price = 0
 	rules.wall_price = 0
 	rules.door_price = 0
+	rules.charges_enabled = false
 	return rules
 
 

@@ -21,6 +21,7 @@ func _initialize() -> void:
 	await _check_types()
 	await _check_agents()
 	await _check_guests()
+	await _check_wall_modes()
 	await _check_clock()
 
 	# Capturas del resaltado: modo celda (args[0]) y modo arista (args[1]).
@@ -470,7 +471,9 @@ func _check_agents() -> void:
 	_check(layer.get_view_count() == 1 and not panel.visible, "su vista y el panel desaparecen")
 
 	# Ordenación con las paredes: un agente justo detrás de una pared queda tapado y uno justo
-	# delante se ve. Se comprueba mirando el color real de los píxeles.
+	# delante se ve. Se comprueba mirando el color real de los píxeles, con las paredes completas
+	# (en el modo Corte las de delante bajan y dejarían ver también al de detrás).
+	_main.level_view.set_wall_mode(WallViewMode.Mode.UP)
 	state.clock.set_speed(GameClock.Speed.PAUSED)
 	state.agents.remove(second.id)
 	for x in range(26, 30):
@@ -513,6 +516,7 @@ func _check_agents() -> void:
 	state.build.clear_rect_floor(floor_rect, 0)
 	state.build.demolish_room(Rect2i(Vector2i(21, 19), Vector2i(4, 3)), 0)
 	state.clock.set_speed(GameClock.Speed.X1)
+	_main.level_view.set_wall_mode(WallViewMode.default_mode())
 	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
 	await _frames(3)
 
@@ -622,6 +626,80 @@ func _check_guests() -> void:
 	state.build.clear_rect_floor(floor_rect, 0)
 	state.clock.set_speed(GameClock.Speed.X1)
 	state.clock.total_minutes = GameClock.START_MINUTES # el avance rápido llevó el reloj al día 2
+	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
+	await _frames(3)
+
+
+func _check_wall_modes() -> void:
+	print("== modo corte de paredes")
+	var state: GameState = _main.state
+	var camera: IsoCamera = _main.camera
+	var view: LevelView = _main.level_view
+	var bar: WallModeBar = _main.wall_mode_bar
+	var floor_rect := Rect2i(Vector2i(16, 16), Vector2i(15, 12))
+	var room_rect := Rect2i(Vector2i(22, 17), Vector2i(4, 3))
+
+	state.spawner.enabled = false
+	state.clock.set_speed(GameClock.Speed.PAUSED)
+	state.build.fill_rect_floor(floor_rect, 0)
+	state.build.build_room(room_rect, 0)
+	state.build.place_door(Edge.from_side(Vector2i(22, 18), Edge.Side.WEST), 0)
+	# Un agente en la fila de la pared sur, justo detrás de ella: con la pared completa queda tapado.
+	var agent: Agent = state.agents.spawn(Vector2i(24, 19), 0)
+	agent.wanders = false
+	camera.position = IsoProjection.grid_to_world(Vector2(23, 19))
+	await _frames(4)
+
+	# Modo por defecto y teclado: C rota Corte -> Bajas -> Ocultas -> Arriba -> Corte.
+	_check(view.get_wall_mode() == WallViewMode.Mode.CUTAWAY and bar.get_button(WallViewMode.Mode.CUTAWAY).button_pressed, "se arranca en modo Corte, con su botón marcado")
+	var expected_cycle: Array[WallViewMode.Mode] = [WallViewMode.Mode.LOW, WallViewMode.Mode.DOWN, WallViewMode.Mode.UP, WallViewMode.Mode.CUTAWAY]
+	for expected: WallViewMode.Mode in expected_cycle:
+		await _press_key(KEY_C)
+		_check(view.get_wall_mode() == expected and bar.get_button(expected).button_pressed, "la tecla C pasa al modo %s" % WallViewMode.label(expected))
+	var pressed_count: int = 0
+	for mode: WallViewMode.Mode in WallModeBar.ALL_MODES:
+		if bar.get_button(mode).button_pressed:
+			pressed_count += 1
+	_check(pressed_count == 1, "siempre hay un solo botón marcado")
+
+	# Botones con clics reales (también el cambio directo de uno a otro).
+	for mode: WallViewMode.Mode in [WallViewMode.Mode.UP, WallViewMode.Mode.DOWN, WallViewMode.Mode.LOW, WallViewMode.Mode.CUTAWAY]:
+		await _click_button(bar.get_button(mode))
+		_check(view.get_wall_mode() == mode and bar.get_button(mode).button_pressed, "el botón %s activa su modo" % WallViewMode.label(mode))
+	await _click_button(bar.get_button(WallViewMode.Mode.CUTAWAY))
+	_check(view.get_wall_mode() == WallViewMode.Mode.CUTAWAY and bar.get_button(WallViewMode.Mode.CUTAWAY).button_pressed, "pulsar el modo activo no lo desmarca")
+
+	# Lo que realmente se ve: el agente de detrás de la pared sur, según el modo.
+	var screenshot_index: int = 13
+	for mode: WallViewMode.Mode in WallModeBar.ALL_MODES:
+		view.set_wall_mode(mode)
+		await _frames(4)
+		var image: Image = root.get_texture().get_image()
+		var pixel: Color = _pixel_at_body(image, agent)
+		if mode == WallViewMode.Mode.UP:
+			_check(_close(pixel, TilesetFactory.WALL_FACE_X), "Arriba: la pared sur tapa al agente (%s)" % str(pixel))
+		else:
+			_check(_close(pixel, AgentView.body_color_of(agent)), "%s: se ve al agente (%s)" % [WallViewMode.label(mode), str(pixel)])
+		_save_args(screenshot_index)
+		screenshot_index += 1
+
+	# Los cambios de suelo se reflejan solos en el modo Corte.
+	view.set_wall_mode(WallViewMode.Mode.CUTAWAY)
+	var south_cell := Vector2i(24, 20) # dueña de la pared sur de la celda (24, 19)
+	var low_coords: Vector2i = view.get_wall_coords(south_cell)
+	state.build.remove_floor(Vector2i(24, 19), 0)
+	await _frames(2)
+	_check(view.get_wall_coords(south_cell) != low_coords, "al quitar el suelo de detrás, la pared sur vuelve a subir")
+	state.build.place_floor(Vector2i(24, 19), 0)
+	await _frames(2)
+	_check(view.get_wall_coords(south_cell) == low_coords, "y al devolverlo, vuelve a bajar")
+
+	# Limpieza.
+	state.agents.remove(agent.id)
+	state.build.demolish_room(room_rect, 0)
+	state.build.clear_rect_floor(floor_rect, 0)
+	state.clock.set_speed(GameClock.Speed.X1)
+	view.set_wall_mode(WallViewMode.default_mode())
 	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
 	await _frames(3)
 

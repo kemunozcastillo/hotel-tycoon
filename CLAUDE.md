@@ -105,8 +105,9 @@ sim/     lógica pura: GridMap2D (niveles, suelo, paredes y puertas por arista),
 view/    main.tscn/main.gd (escena principal), IsoProjection (única que conoce el rombo 64x32),
          TilesetFactory (arte provisional por código), LevelView (TileMapLayer), GridLines,
          IsoCamera, CellCursor, ShapePreview, RoomOverlay, EntranceLayer, AgentsLayer / AgentView,
-         BuildController
-ui/      BuildToolbar (herramientas, paleta de tipos, Entrada y Agente), RoomInfoPanel,
+         BuildController, WallStyle / WallViewMode / WallVisibility (alturas y modo corte de
+         paredes)
+ui/      BuildToolbar (herramientas, paleta de tipos, Entrada y Agente), WallModeBar, RoomInfoPanel,
          AgentInfoPanel, HotelStatusLabel, RoomTexts y GuestTexts (textos en español), ClockLabel
          (día, hora y velocidad)
 data/    room_types.json (tipos de habitación y sus requisitos)
@@ -146,8 +147,11 @@ Código de salida 1 si algún test falla. Para añadir una suite: crear `tests/t
   de información, herramienta Agente (crear, seleccionar, enviar, bloqueo, Supr), la ordenación
   de los agentes con las paredes (comprobada por el color real de los píxeles, en los dos ejes), el
   ciclo completo de un huésped (herramienta Entrada, tipos Recepción y Dormitorio, llegada,
-  check-in, alojamiento, paneles, salida) y reloj. Admite hasta trece rutas de PNG tras `--` (en el
-  orden en que las guarda cada comprobación; ver las llamadas `_save_args`).
+  check-in, alojamiento, paneles, salida), el modo corte de paredes (tecla C, botones, y la
+  visibilidad de un agente por píxeles en los cuatro modos) y reloj. Admite hasta diecisiete rutas
+  de PNG tras `--` (en el orden en que las guarda cada comprobación; ver las llamadas `_save_args`).
+  Las comprobaciones de ordenación con las paredes fijan el modo Arriba (con paredes bajas no
+  tapan al agente).
 - `tests/hotel_fixture.gd` (`HotelFixture.build(n_dormitorios, semilla, llegadas_automaticas)`):
   hotel de prueba (vestíbulo, entrada, recepción y N dormitorios con puerta) para los tests de
   huéspedes. Las llegadas automáticas vienen desactivadas; cada test llama a `guests.arrive`.
@@ -156,7 +160,6 @@ Código de salida 1 si algún test falla. Para añadir una suite: crear `tests/t
 
 ```bash
 "$GODOT" --path . --script res://tests/interaction_check.gd -- captura0.png captura1.png
-"$GODOT" --path . --script res://tests/capture_view.gd -- demo.png
 "$GODOT" --path . --script res://tests/capture_view.gd -- demo.png
 ```
 
@@ -171,8 +174,22 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
 - `IsoProjection` coincide con `TileMapLayer.map_to_local()` (la caja de la celda (0,0) empieza en
   el origen); `tests/test_iso_projection.gd` lo comprueba contra un `TileMapLayer` real.
 - Las paredes y puertas de la vista viven en una sola `TileMapLayer` con `y_sort_enabled`; cada
-  celda dibuja las aristas que posee (norte = X, oeste = Y) con un tile por combinación de tipos
-  (`TilesetFactory.wall_coords`: 3 x 3 menos "nada y nada" = 8 tiles).
+  celda dibuja las aristas que posee (norte = X, oeste = Y) con un tile por combinación de estados.
+  Una arista tiene 7 estados visuales (nada, o pared/puerta en cada altura de `WallStyle.Height`:
+  FULL 48 px, LOW 14 px, FLAT 3 px), así que hay 7 x 7 - 1 = 48 tiles (`TilesetFactory.wall_coords`).
+  Se necesita una sola capa y no una por eje porque solo así se ordena bien por Y con los agentes.
+  Los tiles se dibujan por columnas con `fill_rect` (generar el TileSet tarda unos 2 ms; dibujarlos
+  probando cada píxel contra un polígono sería unas cien veces más lento).
+- **Modo corte de paredes** (solo vista; no está en `sim/` ni se guarda): `WallViewMode` (Arriba,
+  Corte, Bajas, Ocultas; por defecto Corte), `WallVisibility.height_for` (lógica pura) y
+  `LevelView.set_wall_mode`. En Corte, una pared se baja si la celda de **atrás** (norte para una
+  arista X, oeste para una Y) tiene suelo, porque le tapa algo; si no, es una pared del fondo y se
+  deja entera. Así, en un edificio sobre terreno sin suelo, las paredes norte y oeste quedan altas y
+  las sur y este bajas; pero si hay suelo alrededor (un vestíbulo, un pasillo) todas las que dan a
+  él bajan. Solo se mira la celda inmediatamente detrás. Al cambiar el suelo de una celda solo se
+  redibujan las dos celdas cuyas paredes dependen de ella (`WallVisibility.dependent_wall_cells`);
+  los tests comprueban que la actualización incremental coincide con un redibujado completo. Las
+  vistas previas de construcción y las etiquetas usan siempre la altura completa.
 - El tinte de habitaciones (`RoomOverlay`) se inserta entre el suelo y las paredes
   (`LevelView.add_ground_overlay`) para no teñir las paredes; su etiqueta flota por encima.
 - Los comandos de forma (`fill_rect_floor`, `outline_rect_walls`, `build_room`, ...) solo añaden
@@ -186,15 +203,15 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
   `y_sort_enabled` que también contiene la capa de paredes. La posición del nodo es el punto de
   los pies. Los tiles de pared llevan `y_sort_origin = -8` (el punto medio de sus aristas está 8 px
   sobre el centro de la celda), que ordena bien al agente dentro de la celda y al otro lado de la
-  pared. Desde cámaras como la actual los agentes dentro de una habitación quedan tapados por sus
-  paredes frontales; hará falta un modo corte.
+  pared. Con las paredes completas (modo Arriba) los agentes dentro de una habitación quedan
+  tapados por sus paredes frontales; el modo Corte lo resuelve.
 - Los paneles de información (`RoomInfoPanel`, `AgentInfoPanel`) ignoran el ratón para no tapar la
   construcción.
 - En los tests, una función conectada a una señal de `GameState` no debe capturar el propio
   `state` (crea un ciclo de referencias y Godot avisa de fugas al cerrar): capturar solo lo
   necesario (por ejemplo `state.clock`).
-- Un huésped alojado queda dentro de su dormitorio y las paredes frontales lo tapan desde la cámara
-  actual; hará falta un modo corte.
+- Un huésped alojado queda dentro de su dormitorio; en el modo Corte (por defecto) se ve, y en
+  Arriba lo tapan las paredes frontales.
 - En el modo arista, el punto del ratón se interpreta sobre el plano del suelo, no sobre la
   altura de la pared.
 - Hay un solo nivel visible (0). `GridMap2D` y `LevelView` ya reciben el nivel como parámetro.
@@ -222,4 +239,6 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
   falta o cuántos huéspedes, cuántos esperan y cuántos dormitorios hay libres. Con la herramienta
   Agente se puede seleccionar a un huésped y ver su estado; el panel de un dormitorio indica quién
   lo ocupa. Los huéspedes llevan sombrero (y maleta al llegar o irse).
+- Paredes: el selector de abajo en el centro (Arriba / Corte / Bajas / Ocultas) o la tecla `C`, que
+  rota entre los cuatro modos. Corte es el modo por defecto.
 - Reloj: `Espacio` pausa, `1` / `2` / `3` velocidades.

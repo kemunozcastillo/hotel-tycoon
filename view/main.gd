@@ -23,6 +23,7 @@ var toolbar: BuildToolbar
 var room_info_panel: RoomInfoPanel
 var clock_label: ClockLabel
 var hotel_status_label: HotelStatusLabel
+var wall_mode_bar: WallModeBar
 
 
 func _ready() -> void:
@@ -102,6 +103,12 @@ func _ready() -> void:
 	hud.add_child(hotel_status_label)
 	hotel_status_label.setup(state, LEVEL)
 
+	wall_mode_bar = WallModeBar.new()
+	hud.add_child(wall_mode_bar)
+	wall_mode_bar.setup(level_view.get_wall_mode())
+	wall_mode_bar.mode_selected.connect(level_view.set_wall_mode)
+	level_view.wall_mode_changed.connect(wall_mode_bar.set_mode)
+
 
 func _process(delta: float) -> void:
 	state.tick(delta)
@@ -124,12 +131,16 @@ func _refresh_hovered_room() -> void:
 	room_info_panel.show_room(room)
 
 
-## Atajos del reloj: Espacio pausa/reanuda; 1, 2 y 3 eligen la velocidad.
+## Atajos: Espacio pausa/reanuda el reloj; 1, 2 y 3 eligen la velocidad; C cambia el modo de
+## visualización de las paredes.
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if key == null or not key.pressed or key.echo:
 		return
 	match key.keycode:
+		KEY_C:
+			if not key.ctrl_pressed:
+				level_view.set_wall_mode(WallViewMode.next(level_view.get_wall_mode()))
 		KEY_SPACE:
 			state.clock.toggle_pause()
 		KEY_1:

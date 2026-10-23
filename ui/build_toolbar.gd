@@ -19,6 +19,7 @@ func setup(controller: BuildController) -> void:
 	group.allow_unpress = true
 	_add_tool_button(box, group, "Suelo", BuildController.Tool.FLOOR)
 	_add_tool_button(box, group, "Pared", BuildController.Tool.WALL)
+	_add_tool_button(box, group, "Puerta", BuildController.Tool.DOOR)
 	_add_tool_button(box, group, "Habitación", BuildController.Tool.ROOM)
 
 	var hint := Label.new()

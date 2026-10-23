@@ -6,9 +6,9 @@ extends Node
 ## Clic izquierdo coloca, clic derecho quita. Con Suelo y Pared se pinta arrastrando
 ## (pincel); con Shift pulsado al empezar, el arrastre define un rectángulo (suelo relleno o
 ## perímetro de paredes). La herramienta Habitación siempre usa un rectángulo y crea suelo y
-## paredes a la vez. Esc cancela el arrastre en curso o, si no hay, deselecciona la herramienta.
+## paredes a la vez. La herramienta Puerta coloca o quita puertas sobre las aristas. Esc cancela el arrastre en curso o, si no hay, deselecciona la herramienta.
 
-enum Tool { NONE, FLOOR, WALL, ROOM }
+enum Tool { NONE, FLOOR, WALL, DOOR, ROOM }
 
 signal tool_changed(new_tool: Tool)
 
@@ -84,7 +84,7 @@ func _on_hover_changed() -> void:
 # --- Arrastres ---------------------------------------------------------------------------
 
 func _begin_stroke(button_index: int, shift_held: bool) -> void:
-	var wants_shape: bool = current_tool == Tool.ROOM or shift_held
+	var wants_shape: bool = current_tool == Tool.ROOM 			or (shift_held and (current_tool == Tool.FLOOR or current_tool == Tool.WALL))
 	if wants_shape:
 		if not _cursor.is_hovering:
 			return
@@ -131,6 +131,13 @@ func _apply_brush() -> void:
 				_state.build.remove_wall(_cursor.hover_edge, _level)
 			else:
 				_state.build.place_wall(_cursor.hover_edge, _level)
+		Tool.DOOR:
+			if not _cursor.has_hover_edge:
+				return
+			if removing:
+				_state.build.remove_door(_cursor.hover_edge, _level)
+			else:
+				_state.build.place_door(_cursor.hover_edge, _level)
 
 
 func _apply_shape() -> void:
@@ -167,10 +174,10 @@ func _update_preview() -> void:
 	_preview.show_shape(rect, kind, _stroke_button == MOUSE_BUTTON_RIGHT)
 
 
-## La arista solo se resalta con la herramienta Pared en modo pincel; cuando se va a dibujar
-## un rectángulo (Shift pulsado o arrastre en curso) se resalta la celda de la esquina.
+## La arista se resalta con Puerta y con Pared en modo pincel; cuando se va a dibujar un
+## rectángulo (Shift pulsado o arrastre en curso) se resalta la celda de la esquina.
 func _update_cursor_mode() -> void:
 	var shape_pending: bool = _shape_mode or Input.is_key_pressed(KEY_SHIFT)
-	var wants_edge: bool = current_tool == Tool.WALL and not shape_pending
+	var wants_edge: bool = current_tool == Tool.DOOR or (current_tool == Tool.WALL and not shape_pending)
 	if _cursor.edge_mode != wants_edge:
 		_cursor.edge_mode = wants_edge

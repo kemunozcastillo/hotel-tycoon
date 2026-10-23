@@ -24,12 +24,31 @@ func remove_floor(cell: Vector2i, level: int) -> bool:
 	return _grid.set_floor_type(cell, level, CellTypes.FloorType.NONE)
 
 
+## Pone una pared; si había una puerta, la sustituye.
 func place_wall(edge: Edge, level: int) -> bool:
 	return _grid.set_wall(edge, level, true)
 
 
+## Quita una pared. No toca las puertas.
 func remove_wall(edge: Edge, level: int) -> bool:
 	return _grid.set_wall(edge, level, false)
+
+
+## Pone una puerta; si había una pared, la sustituye.
+func place_door(edge: Edge, level: int) -> bool:
+	return _grid.set_edge_type(edge, level, CellTypes.EdgeType.DOOR)
+
+
+## Quita una puerta dejando la arista abierta. No toca las paredes.
+func remove_door(edge: Edge, level: int) -> bool:
+	if not _grid.has_door(edge, level):
+		return false
+	return _grid.set_edge_type(edge, level, CellTypes.EdgeType.NONE)
+
+
+## Quita lo que haya en la arista, sea pared o puerta.
+func clear_edge(edge: Edge, level: int) -> bool:
+	return _grid.set_edge_type(edge, level, CellTypes.EdgeType.NONE)
 
 
 # --- Comandos de forma (rectángulos) ----------------------------------------------------
@@ -52,16 +71,20 @@ func clear_rect_floor(rect: Rect2i, level: int) -> int:
 	return changed
 
 
-## Pone paredes en el perímetro del rectángulo. Devuelve cuántas aristas cambiaron.
+## Pone paredes en el perímetro del rectángulo, respetando las puertas que ya hubiera.
+## Devuelve cuántas aristas cambiaron.
 func outline_rect_walls(rect: Rect2i, level: int) -> int:
 	var changed: int = 0
 	for edge: Edge in GridShapes.rect_perimeter(rect):
+		if _grid.has_door(edge, level):
+			continue
 		if place_wall(edge, level):
 			changed += 1
 	return changed
 
 
-## Quita las paredes del perímetro del rectángulo. Devuelve cuántas aristas cambiaron.
+## Quita las paredes del perímetro del rectángulo (las puertas se quedan).
+## Devuelve cuántas aristas cambiaron.
 func clear_outline_walls(rect: Rect2i, level: int) -> int:
 	var changed: int = 0
 	for edge: Edge in GridShapes.rect_perimeter(rect):
@@ -76,6 +99,10 @@ func build_room(rect: Rect2i, level: int) -> int:
 	return fill_rect_floor(rect, level) + outline_rect_walls(rect, level)
 
 
-## Derriba una habitación: quita el suelo interior y las paredes del perímetro.
+## Derriba una habitación: quita el suelo interior y todo el perímetro (paredes y puertas).
 func demolish_room(rect: Rect2i, level: int) -> int:
-	return clear_rect_floor(rect, level) + clear_outline_walls(rect, level)
+	var changed: int = clear_rect_floor(rect, level)
+	for edge: Edge in GridShapes.rect_perimeter(rect):
+		if clear_edge(edge, level):
+			changed += 1
+	return changed

@@ -68,31 +68,62 @@ func set_floor_type(cell: Vector2i, level: int, type: CellTypes.FloorType) -> bo
 	return true
 
 
-func has_wall(edge: Edge, level: int) -> bool:
+func get_edge_type(edge: Edge, level: int) -> CellTypes.EdgeType:
 	if not has_level(level):
-		return false
-	return _layer(level).has_wall(edge)
+		return CellTypes.EdgeType.NONE
+	return _layer(level).get_edge_type(edge)
 
 
-## Devuelve true si la pared cambió (y entonces emite edge_changed).
-func set_wall(edge: Edge, level: int, on: bool) -> bool:
+## Devuelve true si la arista cambió de tipo (y entonces emite edge_changed).
+func set_edge_type(edge: Edge, level: int, type: CellTypes.EdgeType) -> bool:
 	if not has_level(level):
 		return false
-	if not _layer(level).set_wall(edge, on):
+	if not _layer(level).set_edge_type(edge, type):
 		return false
 	edge_changed.emit(edge, level)
 	return true
 
 
-## true si no se puede pasar de `a` a `b` por una pared. Cualquier celda fuera del mapa,
-## un nivel inexistente o un par de celdas no contiguas cuentan como bloqueados.
+func has_wall(edge: Edge, level: int) -> bool:
+	return get_edge_type(edge, level) == CellTypes.EdgeType.WALL
+
+
+func has_door(edge: Edge, level: int) -> bool:
+	return get_edge_type(edge, level) == CellTypes.EdgeType.DOOR
+
+
+## Atajo: `on` pone una pared (sustituyendo una puerta si la hubiera); `off` solo quita una
+## pared, nunca una puerta.
+func set_wall(edge: Edge, level: int, on: bool) -> bool:
+	if on:
+		return set_edge_type(edge, level, CellTypes.EdgeType.WALL)
+	if not has_wall(edge, level):
+		return false
+	return set_edge_type(edge, level, CellTypes.EdgeType.NONE)
+
+
+## true si no se puede pasar de `a` a `b`: solo lo bloquea una pared (las puertas se cruzan).
+## Cualquier celda fuera del mapa, un nivel inexistente o un par de celdas no contiguas
+## cuentan como bloqueados.
 func is_blocked_between(a: Vector2i, b: Vector2i, level: int) -> bool:
 	if not has_level(level) or not in_bounds(a) or not in_bounds(b):
 		return true
 	var edge: Edge = Edge.between(a, b)
 	if edge == null:
 		return true
-	return _layer(level).has_wall(edge)
+	return has_wall(edge, level)
+
+
+## true si entre `a` y `b` hay algo que separa habitaciones (pared o puerta). A diferencia de
+## is_blocked_between, una celda vecina fuera del mapa NO cuenta como separada: solo la
+## separa una pared o puerta en el borde. Las celdas no contiguas no están separadas.
+func is_room_boundary(a: Vector2i, b: Vector2i, level: int) -> bool:
+	if not has_level(level):
+		return false
+	var edge: Edge = Edge.between(a, b)
+	if edge == null:
+		return false
+	return get_edge_type(edge, level) != CellTypes.EdgeType.NONE
 
 
 func _layer(level: int) -> LevelLayer:

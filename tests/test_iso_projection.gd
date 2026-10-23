@@ -65,7 +65,7 @@ func test_tileset_has_expected_sources() -> void:
 	assert_true(tile_set.has_source(TilesetFactory.GROUND_SOURCE_ID))
 	assert_true(tile_set.has_source(TilesetFactory.WALL_SOURCE_ID))
 	var walls: TileSetAtlasSource = tile_set.get_source(TilesetFactory.WALL_SOURCE_ID) as TileSetAtlasSource
-	assert_eq(walls.get_tiles_count(), 3)
+	assert_eq(walls.get_tiles_count(), 8, "combinaciones de arista X/Y con algo que dibujar")
 
 
 func _make_layer() -> TileMapLayer:

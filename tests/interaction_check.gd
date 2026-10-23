@@ -244,10 +244,39 @@ func _check_shapes() -> void:
 	_check(state.grid.get_floor_type(Vector2i(13, 25), 0) == CellTypes.FloorType.NONE, "el arrastre cancelado no construye")
 	_check(controller.current_tool == BuildController.Tool.ROOM, "el primer Esc solo cancela el arrastre, la herramienta sigue")
 
+	# Puertas: la herramienta Puerta sustituye una pared por una puerta transitable.
+	controller.set_tool(BuildController.Tool.DOOR)
+	var door_edge: Edge = Edge.from_side(Vector2i(5, 26), Edge.Side.SOUTH)
+	await _click_grid(Vector2(5.5, 26.97), MOUSE_BUTTON_LEFT)
+	_check(state.grid.get_edge_type(door_edge, 0) == CellTypes.EdgeType.DOOR, "clic con Puerta sobre una pared coloca una puerta")
+	_check(GridTestHelpers.count_walls(state.grid) == walls_before + 11, "la puerta sustituye a una de las 12 paredes")
+	_check(GridTestHelpers.flood_fill(state.grid, Vector2i(5, 25)).size() > 9, "por la puerta se puede salir de la habitación")
+	_check(state.grid.is_room_boundary(Vector2i(5, 26), Vector2i(5, 27), 0), "la puerta sigue separando la habitación")
+	await _move_mouse_to_grid(Vector2(5.5, 26.97)) # para que la captura muestre la arista de puerta resaltada
 	_save_args(4)
+
+	# Reconstruir la habitación (herramienta Habitación) no tapa la puerta.
+	controller.set_tool(BuildController.Tool.ROOM)
+	await _drag_grid([_center(Vector2i(4, 24)), _center(Vector2i(6, 26))], MOUSE_BUTTON_LEFT)
+	_check(state.grid.has_door(door_edge, 0), "reconstruir la habitación respeta la puerta")
+
+	# Clic derecho con Puerta quita la puerta; con Pared no la toca.
+	controller.set_tool(BuildController.Tool.WALL)
+	await _click_grid(Vector2(5.5, 26.97), MOUSE_BUTTON_RIGHT)
+	_check(state.grid.has_door(door_edge, 0), "clic derecho con Pared no quita puertas")
+	controller.set_tool(BuildController.Tool.DOOR)
+	await _click_grid(Vector2(5.5, 26.97), MOUSE_BUTTON_RIGHT)
+	_check(state.grid.get_edge_type(door_edge, 0) == CellTypes.EdgeType.NONE, "clic derecho con Puerta la quita")
+
+	# Una puerta puesta de nuevo se derriba junto con la habitación.
+	await _click_grid(Vector2(5.5, 26.97), MOUSE_BUTTON_LEFT)
+	_check(state.grid.has_door(door_edge, 0), "(control) puerta colocada otra vez")
+	controller.set_tool(BuildController.Tool.ROOM)
+
 	# Derribar la habitación con clic derecho.
 	await _drag_grid([_center(Vector2i(4, 24)), _center(Vector2i(6, 26))], MOUSE_BUTTON_RIGHT)
 	_check(GridTestHelpers.count_walls(state.grid) == walls_before, "clic derecho con Habitación derriba paredes")
+	_check(GridTestHelpers.count_edges(state.grid, CellTypes.EdgeType.DOOR) == 0, "y puertas")
 	_check(state.grid.get_floor_type(Vector2i(5, 25), 0) == CellTypes.FloorType.NONE, "y suelo")
 	controller.set_tool(BuildController.Tool.NONE)
 	camera.position = IsoProjection.grid_to_world(Vector2(_main.state.grid.size) * 0.5)

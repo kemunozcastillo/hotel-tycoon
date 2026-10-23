@@ -54,14 +54,15 @@ func _update_ground(cell: Vector2i) -> void:
 		_ground.set_cell(cell, TilesetFactory.GROUND_SOURCE_ID, TilesetFactory.GROUND_BASIC_COORDS)
 
 
-## Una celda dibuja las paredes que posee: su arista norte (X) y su arista oeste (Y).
+## Una celda dibuja las paredes y puertas que posee: su arista norte (X) y su arista oeste (Y).
 func _update_walls(cell: Vector2i) -> void:
-	var has_x: bool = _grid.has_wall(Edge.new(cell, Edge.Axis.X), _level)
-	var has_y: bool = _grid.has_wall(Edge.new(cell, Edge.Axis.Y), _level)
-	if not has_x and not has_y:
+	var type_x: CellTypes.EdgeType = _grid.get_edge_type(Edge.new(cell, Edge.Axis.X), _level)
+	var type_y: CellTypes.EdgeType = _grid.get_edge_type(Edge.new(cell, Edge.Axis.Y), _level)
+	var coords: Vector2i = TilesetFactory.wall_coords(type_x, type_y)
+	if coords.x < 0:
 		_walls.erase_cell(cell)
 		return
-	_walls.set_cell(cell, TilesetFactory.WALL_SOURCE_ID, TilesetFactory.wall_coords(has_x, has_y))
+	_walls.set_cell(cell, TilesetFactory.WALL_SOURCE_ID, coords)
 
 
 func _on_cell_changed(cell: Vector2i, level: int) -> void:

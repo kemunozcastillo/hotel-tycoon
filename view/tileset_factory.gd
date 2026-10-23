@@ -4,20 +4,23 @@ extends RefCounted
 ##
 ## - Fuente GROUND: un rombo de 64x32 por tipo de suelo.
 ## - Fuente WALL: paneles altos sobre las aristas norte (eje X) y oeste (eje Y) de la celda.
-##   La textura es alta y tiene el rombo de la celda en su centro (con relleno transparente
-##   debajo), para que el tile quede alineado sin tocar `texture_origin`.
+##   Una celda posee dos aristas y cada una puede ser nada, pared o puerta, así que hay un
+##   tile por combinación (3 x 3 = 9; la combinación "nada y nada" no se dibuja). La textura
+##   es alta y tiene el rombo de la celda en su centro (con relleno transparente debajo), para
+##   que el tile quede alineado sin tocar `texture_origin`.
 
 const GROUND_SOURCE_ID: int = 0
 const WALL_SOURCE_ID: int = 1
 
-## Coordenadas de atlas de cada tile.
 const GROUND_BASIC_COORDS: Vector2i = Vector2i(0, 0)
-const WALL_X_COORDS: Vector2i = Vector2i(0, 0)
-const WALL_Y_COORDS: Vector2i = Vector2i(1, 0)
-const WALL_XY_COORDS: Vector2i = Vector2i(2, 0)
 
 const WALL_HEIGHT: int = 48
 const WALL_TEXTURE_SIZE: Vector2i = Vector2i(64, 32 + 2 * WALL_HEIGHT)
+# Puerta: el hueco ocupa de DOOR_START a DOOR_END del largo de la arista y DOOR_HEIGHT de alto.
+const DOOR_START: float = 0.22
+const DOOR_END: float = 0.78
+const DOOR_HEIGHT: int = 36
+const DOOR_FRAME_THICKNESS: float = 0.05
 
 const GROUND_FILL: Color = Color(0.78, 0.70, 0.56)
 const GROUND_BORDER: Color = Color(0.52, 0.45, 0.35)
@@ -25,6 +28,10 @@ const WALL_FACE_X: Color = Color(0.88, 0.86, 0.82)
 const WALL_FACE_Y: Color = Color(0.72, 0.70, 0.67)
 const WALL_CAP: Color = Color(0.97, 0.96, 0.94)
 const WALL_BASE: Color = Color(0.40, 0.37, 0.35)
+const DOOR_FRAME: Color = Color(0.45, 0.30, 0.18)
+
+# Número de tipos de arista (NONE, WALL, DOOR) usado para indexar las combinaciones.
+const EDGE_TYPE_COUNT: int = 3
 
 
 static func build() -> TileSet:
@@ -37,11 +44,13 @@ static func build() -> TileSet:
 	return tile_set
 
 
-## Coordenadas de atlas del tile de pared para una celda según las aristas que posee.
-static func wall_coords(has_x: bool, has_y: bool) -> Vector2i:
-	if has_x and has_y:
-		return WALL_XY_COORDS
-	return WALL_X_COORDS if has_x else WALL_Y_COORDS
+## Coordenadas de atlas del tile de una celda según el tipo de su arista norte (X) y oeste (Y).
+## Devuelve (-1, -1) si no hay nada que dibujar.
+static func wall_coords(type_x: CellTypes.EdgeType, type_y: CellTypes.EdgeType) -> Vector2i:
+	var index: int = type_x * EDGE_TYPE_COUNT + type_y
+	if index == 0:
+		return Vector2i(-1, -1)
+	return Vector2i(index, 0)
 
 
 static func _build_ground_source() -> TileSetAtlasSource:
@@ -61,16 +70,19 @@ static func _build_ground_source() -> TileSetAtlasSource:
 
 static func _build_wall_source() -> TileSetAtlasSource:
 	var size: Vector2i = WALL_TEXTURE_SIZE
-	# Tres tiles en fila: solo X, solo Y, ambos.
-	var image: Image = Image.create_empty(size.x * 3, size.y, false, Image.FORMAT_RGBA8)
-	_draw_wall_panel(image, 0, Edge.Axis.X)
-	_draw_wall_panel(image, size.x, Edge.Axis.Y)
-	_draw_wall_panel(image, size.x * 2, Edge.Axis.X)
-	_draw_wall_panel(image, size.x * 2, Edge.Axis.Y)
-	var source := _make_source(image, size)
-	source.create_tile(WALL_X_COORDS)
-	source.create_tile(WALL_Y_COORDS)
-	source.create_tile(WALL_XY_COORDS)
+	var combos: int = EDGE_TYPE_COUNT * EDGE_TYPE_COUNT
+	var image: Image = Image.create_empty(size.x * combos, size.y, false, Image.FORMAT_RGBA8)
+	var source: TileSetAtlasSource = null
+	for type_x in range(EDGE_TYPE_COUNT):
+		for type_y in range(EDGE_TYPE_COUNT):
+			var index: int = type_x * EDGE_TYPE_COUNT + type_y
+			if index == 0:
+				continue
+			_draw_edge_panel(image, index * size.x, Edge.Axis.X, type_x as CellTypes.EdgeType)
+			_draw_edge_panel(image, index * size.x, Edge.Axis.Y, type_y as CellTypes.EdgeType)
+	source = _make_source(image, size)
+	for index in range(1, combos):
+		source.create_tile(Vector2i(index, 0))
 	return source
 
 
@@ -81,8 +93,11 @@ static func _make_source(image: Image, region_size: Vector2i) -> TileSetAtlasSou
 	return source
 
 
-## Dibuja un panel sobre la arista norte (X) u oeste (Y) del rombo situado en el centro del tile.
-static func _draw_wall_panel(image: Image, offset_x: int, axis: Edge.Axis) -> void:
+## Dibuja lo que hay sobre la arista norte (X) u oeste (Y) del rombo situado en el centro del
+## tile: una pared completa o una pared con hueco de puerta.
+static func _draw_edge_panel(image: Image, offset_x: int, axis: Edge.Axis, type: CellTypes.EdgeType) -> void:
+	if type == CellTypes.EdgeType.NONE:
+		return
 	var origin := Vector2(offset_x, 0)
 	# Rombo de la celda centrado verticalmente en la textura: su vértice superior queda en
 	# (32, mitad - 16).
@@ -90,12 +105,38 @@ static func _draw_wall_panel(image: Image, offset_x: int, axis: Edge.Axis) -> vo
 	var end: Vector2 = top + (Vector2(32, 16) if axis == Edge.Axis.X else Vector2(-32, 16))
 	var up := Vector2(0, -WALL_HEIGHT)
 	var face: Color = WALL_FACE_X if axis == Edge.Axis.X else WALL_FACE_Y
-	_fill_polygon(image, [top, end, end + up, top + up], face)
-	# Borde superior claro y base oscura.
 	var cap := Vector2(0, 3)
-	_fill_polygon(image, [top + up, end + up, end + up + cap, top + up + cap], WALL_CAP)
 	var base := Vector2(0, -2)
-	_fill_polygon(image, [top, end, end + base, top + base], WALL_BASE)
+
+	if type == CellTypes.EdgeType.WALL:
+		_fill_polygon(image, [top, end, end + up, top + up], face)
+		_fill_polygon(image, [top, end, end + base, top + base], WALL_BASE)
+	else:
+		_draw_door_panel(image, top, end, face)
+	# Borde superior claro, en ambos casos.
+	_fill_polygon(image, [top + up, end + up, end + up + cap, top + up + cap], WALL_CAP)
+
+
+## Pared con un hueco: dos jambas laterales y un dintel, con el marco en madera.
+static func _draw_door_panel(image: Image, top: Vector2, end: Vector2, face: Color) -> void:
+	var up := Vector2(0, -WALL_HEIGHT)
+	var door_up := Vector2(0, -DOOR_HEIGHT)
+	var base := Vector2(0, -2)
+	var along: Vector2 = end - top
+	var left: Vector2 = top + along * DOOR_START
+	var right: Vector2 = top + along * DOOR_END
+	var thick: Vector2 = along * DOOR_FRAME_THICKNESS
+
+	# Jambas (a cada lado del hueco) y dintel (encima).
+	_fill_polygon(image, [top, left, left + up, top + up], face)
+	_fill_polygon(image, [right, end, end + up, right + up], face)
+	_fill_polygon(image, [left + door_up, right + door_up, right + up, left + up], face)
+	_fill_polygon(image, [top, left, left + base, top + base], WALL_BASE)
+	_fill_polygon(image, [right, end, end + base, right + base], WALL_BASE)
+	# Marco de madera alrededor del hueco.
+	_fill_polygon(image, [left, left + thick, left + thick + door_up, left + door_up], DOOR_FRAME)
+	_fill_polygon(image, [right - thick, right, right + door_up, right - thick + door_up], DOOR_FRAME)
+	_fill_polygon(image, [left + door_up, right + door_up, right + door_up + Vector2(0, 4), left + door_up + Vector2(0, 4)], DOOR_FRAME)
 
 
 ## Rellena un polígono convexo comprobando el centro de cada píxel.

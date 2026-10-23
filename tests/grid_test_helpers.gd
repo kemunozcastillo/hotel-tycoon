@@ -15,6 +15,18 @@ static func count_walls(grid: GridMap2D, level: int = 0) -> int:
 	return count
 
 
+## Cuenta las aristas de un tipo dado en un nivel.
+static func count_edges(grid: GridMap2D, type: CellTypes.EdgeType, level: int = 0) -> int:
+	var count: int = 0
+	for y in range(grid.size.y + 1):
+		for x in range(grid.size.x + 1):
+			for axis: Edge.Axis in [Edge.Axis.X, Edge.Axis.Y]:
+				var edge := Edge.new(Vector2i(x, y), axis)
+				if grid.is_edge_valid(edge, level) and grid.get_edge_type(edge, level) == type:
+					count += 1
+	return count
+
+
 ## Celdas alcanzables desde `start` sin cruzar paredes.
 static func flood_fill(grid: GridMap2D, start: Vector2i, level: int = 0) -> Array[Vector2i]:
 	var visited: Dictionary = {start: true}

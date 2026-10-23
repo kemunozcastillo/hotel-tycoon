@@ -6,17 +6,17 @@ extends RefCounted
 var size: Vector2i
 
 var _floor: PackedByteArray
-# Aristas norte (Axis.X) y oeste (Axis.Y). Tamaño (ancho+1) x (alto+1) para
-# poder cerrar el borde sur y este del mapa.
-var _walls_x: PackedByteArray
-var _walls_y: PackedByteArray
+# Tipo (CellTypes.EdgeType) de las aristas norte (Axis.X) y oeste (Axis.Y). Tamaño
+# (ancho+1) x (alto+1) para poder cerrar el borde sur y este del mapa.
+var _edges_x: PackedByteArray
+var _edges_y: PackedByteArray
 
 
 func _init(p_size: Vector2i) -> void:
 	size = p_size
 	_floor.resize(size.x * size.y)
-	_walls_x.resize((size.x + 1) * (size.y + 1))
-	_walls_y.resize((size.x + 1) * (size.y + 1))
+	_edges_x.resize((size.x + 1) * (size.y + 1))
+	_edges_y.resize((size.x + 1) * (size.y + 1))
 
 
 func in_bounds_cell(cell: Vector2i) -> bool:
@@ -50,29 +50,28 @@ func set_floor_type(cell: Vector2i, type: CellTypes.FloorType) -> bool:
 	return true
 
 
-func has_wall(edge: Edge) -> bool:
+func get_edge_type(edge: Edge) -> CellTypes.EdgeType:
+	if not in_bounds_edge(edge):
+		return CellTypes.EdgeType.NONE
+	var index: int = _edge_index(edge)
+	if edge.axis == Edge.Axis.X:
+		return _edges_x[index] as CellTypes.EdgeType
+	return _edges_y[index] as CellTypes.EdgeType
+
+
+## Devuelve true si el tipo cambió.
+func set_edge_type(edge: Edge, type: CellTypes.EdgeType) -> bool:
 	if not in_bounds_edge(edge):
 		return false
 	var index: int = _edge_index(edge)
 	if edge.axis == Edge.Axis.X:
-		return _walls_x[index] != 0
-	return _walls_y[index] != 0
-
-
-## Devuelve true si el valor cambió.
-func set_wall(edge: Edge, on: bool) -> bool:
-	if not in_bounds_edge(edge):
-		return false
-	var index: int = _edge_index(edge)
-	var value: int = 1 if on else 0
-	if edge.axis == Edge.Axis.X:
-		if _walls_x[index] == value:
+		if _edges_x[index] == type:
 			return false
-		_walls_x[index] = value
+		_edges_x[index] = type
 	else:
-		if _walls_y[index] == value:
+		if _edges_y[index] == type:
 			return false
-		_walls_y[index] = value
+		_edges_y[index] = type
 	return true
 
 

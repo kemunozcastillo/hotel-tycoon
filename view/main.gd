@@ -12,6 +12,7 @@ var level_view: LevelView
 var camera: IsoCamera
 var room_overlay: RoomOverlay
 var cursor: CellCursor
+var entrance_layer: EntranceLayer
 var agents_layer: AgentsLayer
 var agent_info_panel: AgentInfoPanel
 var shape_preview: ShapePreview
@@ -37,6 +38,10 @@ func _ready() -> void:
 	cursor = CellCursor.new()
 	add_child(cursor)
 	cursor.setup(state.grid, LEVEL)
+
+	entrance_layer = EntranceLayer.new()
+	add_child(entrance_layer)
+	entrance_layer.setup(state.entrances, state.grid, LEVEL)
 
 	agents_layer = AgentsLayer.new()
 	add_child(agents_layer)

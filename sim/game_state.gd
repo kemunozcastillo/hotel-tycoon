@@ -11,6 +11,7 @@ var room_types: RoomTypeCatalog
 var rooms: RoomRegistry
 var agents: AgentRegistry
 var wander: WanderBehavior
+var entrances: EntrancePoints
 
 
 ## `catalog` permite probar con otros tipos; por defecto se carga data/room_types.json.
@@ -22,6 +23,7 @@ func _init(map_size: Vector2i = DEFAULT_MAP_SIZE, catalog: RoomTypeCatalog = nul
 	rooms = RoomRegistry.new(grid, room_types)
 	agents = AgentRegistry.new(grid)
 	wander = WanderBehavior.new(grid, agents)
+	entrances = EntrancePoints.new(grid)
 
 
 ## Avanza la simulación con el tiempo real transcurrido (en segundos).

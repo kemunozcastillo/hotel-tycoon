@@ -19,6 +19,16 @@
 			"min_short_side": 2,
 			"min_doors": 1,
 			"requires_complete_floor": true
+		},
+		{
+			"id": "reception",
+			"name": "Recepción",
+			"color": "#e0a040",
+			"min_area": 6,
+			"max_area": 40,
+			"min_short_side": 2,
+			"min_doors": 1,
+			"requires_complete_floor": true
 		}
 	]
 }

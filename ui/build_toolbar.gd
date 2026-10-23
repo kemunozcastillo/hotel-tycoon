@@ -13,9 +13,12 @@ var _type_buttons: Dictionary = {} # StringName (id del tipo) -> Button
 
 func setup(controller: BuildController, catalog: RoomTypeCatalog) -> void:
 	_controller = controller
+	# Dos filas: los botones y, debajo, la ayuda.
+	var rows := VBoxContainer.new()
+	add_child(rows)
 	var box := HBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
-	add_child(box)
+	rows.add_child(box)
 
 	_group = ButtonGroup.new()
 	_group.allow_unpress = true
@@ -29,14 +32,15 @@ func setup(controller: BuildController, catalog: RoomTypeCatalog) -> void:
 		for type: RoomType in catalog.get_types():
 			_add_type_button(box, _group, type)
 
-	# Herramienta de desarrollo: crear, seleccionar y mandar agentes.
+	# Entrada de huéspedes, y herramienta de desarrollo para crear, seleccionar y mandar agentes.
 	box.add_child(VSeparator.new())
+	_add_tool_button(box, _group, "Entrada", BuildController.Tool.ENTRANCE)
 	_add_tool_button(box, _group, "Agente", BuildController.Tool.AGENT)
 
 	var hint := Label.new()
 	hint.text = HINT_TEXT
 	hint.modulate = Color(1, 1, 1, 0.7)
-	box.add_child(hint)
+	rows.add_child(hint)
 
 	controller.tool_changed.connect(_on_selection_changed)
 	controller.room_type_selected.connect(_on_selection_changed)

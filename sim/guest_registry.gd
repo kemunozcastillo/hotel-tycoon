@@ -1,8 +1,16 @@
 class_name GuestRegistry
 extends RefCounted
 ## Gobierna el ciclo de estancia de los huéspedes: llegada por una entrada, cola y check-in en una
-## recepción y salida. Cada huésped usa un Agent como cuerpo (le ordena adónde ir y observa cuándo
-## llega). Todos los tiempos son minutos de juego, así que el reloj manda.
+## recepción, asignación de un dormitorio operativo, estancia y salida. Cada huésped usa un Agent
+## como cuerpo (le ordena adónde ir y observa cuándo llega). Todos los tiempos son minutos de
+## juego, así que el reloj manda.
+##
+## Asignación: al terminar el check-in se elige el dormitorio libre y operativo más cercano (por
+## coste de ruta desde donde está el huésped) entre los alcanzables, y se reserva en `occupancy`
+## en ese mismo instante, así que dos huéspedes nunca reciben el mismo. Si no hay ninguno, el
+## huésped espera y se reintenta cada vez que cambia el mapa, las habitaciones o la ocupación.
+## Si su habitación deja de ser válida (derribada, sin tipo, no operativa), la pierde y vuelve a
+## esperar con la paciencia renovada.
 ##
 ## Los números de abajo son provisionales: cuando haya personal y economía se ajustarán.
 
@@ -18,6 +26,9 @@ const PATIENCE_MINUTES: float = 60.0
 const BLOCKED_PATIENCE_MINUTES: float = 30.0
 ## Máximo de huéspedes esperando a la vez (llegando, en cola, en check-in o sin habitación).
 const MAX_WAITING: int = 4
+## Duración de la estancia, al azar entre estos dos valores (2 a 6 horas de juego).
+const STAY_MIN_MINUTES: float = 120.0
+const STAY_MAX_MINUTES: float = 360.0
 
 ## Estados en los que el huésped ocupa un puesto en la línea de la recepción.
 const LINE_STATES: Array[Guest.State] = [
@@ -28,12 +39,16 @@ const LINE_STATES: Array[Guest.State] = [
 signal guest_arrived(guest: Guest)
 ## Un huésped cambió de estado.
 signal guest_state_changed(guest: Guest)
+## A un huésped se le asignó dormitorio (acaba de terminar el check-in o recuperó uno).
+signal guest_checked_in(guest: Guest)
 ## Un huésped se fue (el objeto conserva su último estado y `left_unhappy`).
 signal guest_left(guest: Guest)
 
 var rng := RandomNumberGenerator.new()
+var occupancy := RoomOccupancy.new()
 
 var total_arrived: int = 0
+var total_checked_in: int = 0
 var total_left_happy: int = 0
 var total_left_unhappy: int = 0
 
@@ -46,6 +61,9 @@ var _by_agent: Dictionary = {} # id del agente -> id del huésped
 var _next_id: int = 1
 var _next_ticket: int = 1
 var _dirty_lines: Dictionary = {} # id de recepción -> true
+# Hay que reintentar la asignación de los que esperan habitación (algo cambió).
+var _assign_dirty: bool = true
+var _seen_revision: int = -1
 
 
 func _init(grid: GridMap2D, agents: AgentRegistry, rooms: RoomRegistry, entrances: EntrancePoints) -> void:
@@ -55,6 +73,11 @@ func _init(grid: GridMap2D, agents: AgentRegistry, rooms: RoomRegistry, entrance
 	_entrances = entrances
 	rng.randomize()
 	agents.agent_removed.connect(_on_agent_removed)
+	rooms.room_created.connect(_on_rooms_changed)
+	rooms.room_changed.connect(_on_rooms_changed)
+	rooms.room_removed.connect(_on_rooms_changed)
+	rooms.room_type_changed.connect(_on_rooms_changed)
+	occupancy.occupancy_changed.connect(_mark_assignment_dirty)
 
 
 ## Fija la semilla del azar (para pruebas reproducibles).
@@ -92,6 +115,18 @@ func count_in_state(state: Guest.State) -> int:
 		if guest.state == state:
 			count += 1
 	return count
+
+
+## Dormitorios operativos del nivel y cuántos de ellos están libres.
+func count_bedrooms(level: int) -> Vector2i:
+	var total: int = 0
+	var free: int = 0
+	for room: Room in _rooms.get_rooms(level):
+		if _is_usable_bedroom(room):
+			total += 1
+			if occupancy.is_free(room.id):
+				free += 1
+	return Vector2i(free, total)
 
 
 ## Huéspedes que esperan algo en ese nivel (llegando, en cola, en check-in o sin habitación).
@@ -177,10 +212,24 @@ func tick(game_minutes: float) -> void:
 					guest.timer_minutes -= game_minutes
 					if guest.timer_minutes <= 0.0:
 						_finish_check_in(guest)
+			Guest.State.GOING_TO_ROOM:
+				if not _room_is_valid(guest) or guest.blocked_minutes >= BLOCKED_PATIENCE_MINUTES:
+					_revoke_room(guest)
+				elif _is_at_target(guest, agent):
+					guest.timer_minutes = rng.randf_range(STAY_MIN_MINUTES, STAY_MAX_MINUTES)
+					_set_state(guest, Guest.State.STAYING)
+			Guest.State.STAYING:
+				if not _room_is_valid(guest):
+					_revoke_room(guest)
+				else:
+					guest.timer_minutes -= game_minutes
+					if guest.timer_minutes <= 0.0:
+						_start_leaving(guest, false)
 			Guest.State.LEAVING:
 				if _is_at_target(guest, agent) or guest.blocked_minutes >= BLOCKED_PATIENCE_MINUTES:
 					_despawn(guest)
 	_start_next_check_ins()
+	_assign_waiting_guests()
 	_flush_lines()
 
 
@@ -198,6 +247,97 @@ func _is_at_target(guest: Guest, agent: Agent) -> bool:
 func _finish_check_in(guest: Guest) -> void:
 	guest.timer_minutes = 0.0
 	_set_state(guest, Guest.State.WAITING_ROOM)
+	_try_assign_room(guest)
+
+
+# --- Asignación de dormitorio ----------------------------------------------------------------
+
+func _on_rooms_changed(_room: Room) -> void:
+	_assign_dirty = true
+
+
+func _mark_assignment_dirty() -> void:
+	_assign_dirty = true
+
+
+## true si la habitación es un dormitorio que ahora mismo cumple sus requisitos.
+func _is_usable_bedroom(room: Room) -> bool:
+	return room.type_id == BEDROOM_TYPE and _rooms.get_status(room).is_operational()
+
+
+## true si el dormitorio asignado al huésped sigue existiendo y siendo utilizable.
+func _room_is_valid(guest: Guest) -> bool:
+	var room: Room = _rooms.get_room(guest.room_id)
+	return room != null and _is_usable_bedroom(room)
+
+
+## Reintenta dar habitación a los que esperan, solo si algo cambió desde la última vez: el mapa,
+## las habitaciones o la ocupación. Los más antiguos van primero.
+func _assign_waiting_guests() -> void:
+	if _grid.revision != _seen_revision:
+		_seen_revision = _grid.revision
+		_assign_dirty = true
+	if not _assign_dirty:
+		return
+	_assign_dirty = false
+	var waiting: Array[Guest] = []
+	for guest: Guest in _guests.values():
+		if guest.state == Guest.State.WAITING_ROOM:
+			waiting.append(guest)
+	waiting.sort_custom(func(a: Guest, b: Guest) -> bool: return a.ticket < b.ticket)
+	for guest: Guest in waiting:
+		_try_assign_room(guest)
+
+
+## Busca el dormitorio libre, operativo y alcanzable más cercano a la posición del huésped, lo
+## reserva y lo manda allí. Devuelve false si no hay ninguno.
+func _try_assign_room(guest: Guest) -> bool:
+	var agent: Agent = _agents.get_agent(guest.agent_id)
+	if agent == null:
+		return false
+	var costs: Dictionary = Pathfinder.reachable_costs(_grid, guest.level, agent.get_cell())
+	var best: Room = null
+	var best_cost: float = INF
+	for room: Room in _rooms.get_rooms(guest.level):
+		if not _is_usable_bedroom(room) or not occupancy.is_free(room.id):
+			continue
+		for cell: Vector2i in room.cells:
+			if costs.has(cell) and float(costs[cell]) < best_cost:
+				best_cost = costs[cell]
+				best = room
+	if best == null:
+		return false
+
+	# Dentro del dormitorio va a la celda más alejada de su puerta (la "cama").
+	var spot: Vector2i = best.cells[0]
+	var spot_cost: float = -1.0
+	for cell: Vector2i in best.cells:
+		if costs.has(cell) and float(costs[cell]) > spot_cost:
+			spot_cost = costs[cell]
+			spot = cell
+	if not occupancy.reserve(best.id, guest.id):
+		return false
+	guest.room_id = best.id
+	if not _send(guest, spot):
+		occupancy.release_guest(guest.id)
+		guest.room_id = 0
+		return false
+	total_checked_in += 1
+	_set_state(guest, Guest.State.GOING_TO_ROOM)
+	guest_checked_in.emit(guest)
+	return true
+
+
+## El huésped pierde su habitación (ya no es válida o no puede llegar a ella) y vuelve a esperar
+## otra, con la paciencia renovada.
+func _revoke_room(guest: Guest) -> void:
+	occupancy.release_guest(guest.id)
+	guest.room_id = 0
+	guest.waited_minutes = 0.0
+	guest.blocked_minutes = 0.0
+	guest.timer_minutes = 0.0
+	_set_state(guest, Guest.State.WAITING_ROOM)
+	_try_assign_room(guest)
 
 
 ## Si la recepción está libre, el primero de la línea que ya esté en su puesto empieza el
@@ -224,6 +364,8 @@ func _start_next_check_ins() -> void:
 ## camino hasta ella, desaparece en el sitio.
 func _start_leaving(guest: Guest, unhappy: bool) -> void:
 	guest.left_unhappy = unhappy
+	occupancy.release_guest(guest.id)
+	guest.room_id = 0
 	_set_state(guest, Guest.State.LEAVING)
 	var exit: Vector2i = guest.entrance_cell
 	if not _entrances.get_valid(guest.level).has(exit):
@@ -252,6 +394,7 @@ func _despawn(guest: Guest) -> void:
 func _forget(guest: Guest) -> void:
 	_guests.erase(guest.id)
 	_by_agent.erase(guest.agent_id)
+	occupancy.release_guest(guest.id)
 	_dirty_lines[guest.reception_room_id] = true
 
 

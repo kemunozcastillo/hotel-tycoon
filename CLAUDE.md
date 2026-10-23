@@ -31,6 +31,17 @@ Referencias de género: Project Hospital y Prison Architect.
   de forma perezosa (el mapa solo marca "sucio"; `GameState.tick` llama a `refresh()`) y emite
   `room_created/changed/removed`. Una región cerrada sin suelo completo también es habitación
   (`has_complete_floor = false`).
+- **Tipos de habitación** (dormitorio, baño...): los define `data/room_types.json` (id, nombre,
+  color y requisitos: `min_area`, `max_area` (0 = sin límite), `min_short_side`, `min_doors`,
+  `requires_complete_floor`). `RoomTypeCatalog` lo carga y descarta las entradas mal formadas
+  con un aviso en `warnings` (nunca rompe el arranque). El **jugador asigna** el tipo
+  (`RoomRegistry.set_room_type`); se guarda en `Room.type_id` y sigue al id estable: se conserva
+  al ampliar, la parte nueva de una división queda sin tipo y al derribar se pierde.
+  `RoomValidator.evaluate(room, type)` devuelve un `RoomStatus` con un `RoomCheck` por requisito
+  definido; una habitación que deja de cumplir **conserva el tipo** y se marca no operativa.
+  El lado corto mínimo se mide sobre el rectángulo que contiene a la habitación (una en L
+  de 3 celdas cuenta como lado 2). Para añadir un tipo basta con una entrada nueva en el JSON.
+  Al exportar el juego hay que incluir `data/*.json` en el filtro de exportación del preset.
 - Convención de ejes de la cuadrícula: X crece hacia abajo-derecha en pantalla, Y hacia
   abajo-izquierda (rombo 2:1 de 64x32, `TileSet.TILE_LAYOUT_DIAMOND_DOWN`).
 
@@ -50,12 +61,14 @@ Referencias de género: Project Hospital y Prison Architect.
 ```
 sim/     lógica pura: GridMap2D (niveles, suelo, paredes y puertas por arista), Edge, LevelLayer,
          GridShapes (rectángulos), BuildCommands, Room / RoomDetector / RoomRegistry,
+         RoomType / RoomTypeCatalog / RoomValidator (RoomStatus, RoomCheck),
          GameClock, GameState (raíz de la simulación)
 view/    main.tscn/main.gd (escena principal), IsoProjection (única que conoce el rombo 64x32),
          TilesetFactory (arte provisional por código), LevelView (TileMapLayer), GridLines,
          IsoCamera, CellCursor, ShapePreview, RoomOverlay, BuildController
-ui/      BuildToolbar (herramientas), ClockLabel (día, hora y velocidad)
-data/    datos del juego (vacío por ahora)
+ui/      BuildToolbar (herramientas y paleta de tipos), RoomInfoPanel, RoomTexts (textos en
+         español de requisitos y problemas), ClockLabel (día, hora y velocidad)
+data/    room_types.json (tipos de habitación y sus requisitos)
 assets/  arte y audio (vacío; el arte provisional se genera por código)
 tests/   suites headless de sim/ y view/ más herramientas de verificación con ventana
 ```
@@ -88,12 +101,14 @@ Código de salida 1 si algún test falla. Para añadir una suite: crear `tests/t
 
 - `tests/interaction_check.gd`: inyecta ratón y teclado en la escena real y comprueba hover,
   cámara, construcción (un baño de 2x2 con 8 clics), formas con Mayús, herramienta Habitación,
-  puertas, detección de habitaciones y reloj. Admite hasta cinco rutas de PNG tras `--`:
-  construcción, resaltado de celda, resaltado de arista, vista previa de forma y puerta.
+  puertas, detección de habitaciones, asignación de tipos con clics reales sobre la barra, panel
+  de información y reloj. Admite hasta siete rutas de PNG tras `--`: construcción, resaltado de
+  celda, resaltado de arista, vista previa de forma, puerta, baño sin puerta y dormitorio mal
+  asignado.
 - `tests/capture_view.gd`: captura una escena de demostración con varias habitaciones.
 
 ```bash
-"$GODOT" --path . --script res://tests/interaction_check.gd -- build.png cell.png edge.png preview.png door.png
+"$GODOT" --path . --script res://tests/interaction_check.gd -- build.png cell.png edge.png preview.png door.png bath.png wrong.png
 "$GODOT" --path . --script res://tests/capture_view.gd -- demo.png
 ```
 
@@ -115,6 +130,11 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
 - Los comandos de forma (`fill_rect_floor`, `outline_rect_walls`, `build_room`, ...) solo añaden
   lo que falta, respetan las puertas existentes y devuelven cuántas celdas o aristas cambiaron.
   `demolish_room` sí quita puertas.
+- Los botones de la barra comparten un `ButtonGroup` con `allow_unpress`. Al pasar de un botón a
+  otro, Godot avisa primero de que el anterior se soltó cuando el nuevo ya está pulsado:
+  `BuildToolbar` no deselecciona la herramienta en ese caso (`_another_button_is_pressed`), o la
+  sincronización de botones desmarcaría el recién pulsado.
+- El panel de información (`RoomInfoPanel`) ignora el ratón para no tapar la construcción.
 - En el modo arista, el punto del ratón se interpreta sobre el plano del suelo, no sobre la
   altura de la pared.
 - Hay un solo nivel visible (0). `GridMap2D` y `LevelView` ya reciben el nivel como parámetro.
@@ -129,4 +149,8 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
   empezar, el arrastre define un rectángulo (suelo relleno o perímetro de paredes). Habitación
   siempre usa rectángulo y crea suelo y paredes (clic derecho la derriba). `Esc` cancela el
   arrastre en curso y, si no hay, deselecciona la herramienta.
+- Tipos de habitación: los botones Dormitorio / Baño de la barra (generados desde
+  `data/room_types.json`) activan la herramienta Tipo; clic izquierdo dentro de una habitación le
+  asigna el tipo, clic derecho se lo quita. Al pasar el cursor sobre una habitación se resalta y
+  el panel (abajo a la izquierda) muestra sus requisitos con OK / NO.
 - Reloj: `Espacio` pausa, `1` / `2` / `3` velocidades.

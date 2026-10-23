@@ -31,7 +31,7 @@ func _init(map_size: Vector2i = DEFAULT_MAP_SIZE, catalog: RoomTypeCatalog = nul
 	ledger = Ledger.new(rules.start_money, clock)
 	inventory = Inventory.new()
 	pieces = PlacedPieces.new(grid, clock, rules)
-	build = BuildCommands.new(grid)
+	build = BuildCommands.new(grid, rules, ledger, inventory, pieces)
 	room_types = catalog if catalog != null else RoomTypeCatalog.load_default()
 	rooms = RoomRegistry.new(grid, room_types)
 	agents = AgentRegistry.new(grid)

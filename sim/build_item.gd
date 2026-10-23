@@ -35,6 +35,23 @@ static func label(kind: BuildItem.Kind) -> String:
 			return "Suelo"
 
 
+## "1 suelo", "6 suelos", "1 pared", "10 paredes"...
+static func describe_count(kind: BuildItem.Kind, amount: int) -> String:
+	var singular: String
+	var plural: String
+	match kind:
+		BuildItem.Kind.WALL:
+			singular = "pared"
+			plural = "paredes"
+		BuildItem.Kind.DOOR:
+			singular = "puerta"
+			plural = "puertas"
+		_:
+			singular = "suelo"
+			plural = "suelos"
+	return "%d %s" % [amount, singular if amount == 1 else plural]
+
+
 static func label_plural(kind: BuildItem.Kind) -> String:
 	match kind:
 		BuildItem.Kind.WALL:

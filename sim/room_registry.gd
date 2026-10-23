@@ -8,6 +8,10 @@ extends RefCounted
 ##
 ## Cada habitación conserva su `id` mientras solape con su versión anterior: al ampliarla, o al
 ## dividirla, la parte con más celdas en común mantiene el id y la otra es nueva.
+##
+## El tipo de habitación (dormitorio, baño...) lo asigna el jugador y se guarda en la propia
+## habitación (`Room.type_id`): sigue al id, así que lo conserva la parte que conserva el id, la
+## parte nueva de una división queda sin tipo y al derribar la habitación se pierde.
 
 ## Apareció una habitación nueva.
 signal room_created(room: Room)
@@ -15,15 +19,19 @@ signal room_created(room: Room)
 signal room_changed(room: Room)
 ## Una habitación dejó de existir (el objeto conserva su último estado y su id).
 signal room_removed(room: Room)
+## El jugador asignó o quitó el tipo de una habitación.
+signal room_type_changed(room: Room)
 
 var _grid: GridMap2D
+var _catalog: RoomTypeCatalog
 var _rooms: Dictionary = {} # id -> Room
 var _dirty_levels: Dictionary = {} # level -> true
 var _next_id: int = 1
 
 
-func _init(grid: GridMap2D) -> void:
+func _init(grid: GridMap2D, catalog: RoomTypeCatalog) -> void:
 	_grid = grid
+	_catalog = catalog
 	grid.cell_changed.connect(_on_cell_changed)
 	grid.edge_changed.connect(_on_edge_changed)
 	grid.level_added.connect(_mark_dirty)
@@ -54,6 +62,35 @@ func get_room_at(cell: Vector2i, level: int) -> Room:
 		if room.level == level and room.contains(cell):
 			return room
 	return null
+
+
+## Asigna un tipo a una habitación (&"" lo quita). Devuelve false si la habitación o el tipo no
+## existen, o si ya tenía ese tipo.
+func set_room_type(room_id: int, type_id: StringName) -> bool:
+	refresh()
+	var room: Room = _rooms.get(room_id) as Room
+	if room == null:
+		return false
+	if type_id != &"" and not _catalog.has_type(type_id):
+		return false
+	if room.type_id == type_id:
+		return false
+	room.type_id = type_id
+	room_type_changed.emit(room)
+	return true
+
+
+## El tipo de una habitación, o null si no tiene.
+func get_type_of(room: Room) -> RoomType:
+	return _catalog.get_type(room.type_id)
+
+
+## Estado de la habitación frente a los requisitos de su tipo, o null si no tiene tipo.
+func get_status(room: Room) -> RoomStatus:
+	var type: RoomType = get_type_of(room)
+	if type == null:
+		return null
+	return RoomValidator.evaluate(room, type)
 
 
 ## Recalcula los niveles modificados y emite las señales (primero removed, luego changed y
@@ -124,6 +161,7 @@ func _refresh_level(level: int, removed: Array[Room], changed: Array[Room], crea
 			if old.is_same_as(room):
 				continue # sin cambios: se conserva el objeto anterior
 			room.id = old.id
+			room.type_id = old.type_id
 			_rooms[room.id] = room
 			changed.append(room)
 		else:

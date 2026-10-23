@@ -66,6 +66,17 @@ static func path_cost(grid: GridMap2D, level: int, path: Array[Vector2i]) -> flo
 	return total
 
 
+## true si ir de `from` a la celda contigua `to` (ortogonal o diagonal) es un paso válido según
+## las reglas de find_path. Sirve para comprobar que una ruta guardada sigue siendo transitable.
+static func is_step_legal(grid: GridMap2D, level: int, from: Vector2i, to: Vector2i) -> bool:
+	var step: Vector2i = to - from
+	if step == Vector2i.ZERO or absi(step.x) > 1 or absi(step.y) > 1:
+		return false
+	if step.x == 0 or step.y == 0:
+		return can_step(grid, level, from, step)
+	return _diagonal_is_open(grid, level, from, step)
+
+
 ## true si se puede ir de `from` a la celda contigua `from + step` (ortogonal) sin pared y
 ## pisando una celda válida.
 static func can_step(grid: GridMap2D, level: int, from: Vector2i, step: Vector2i) -> bool:

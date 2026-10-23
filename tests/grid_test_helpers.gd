@@ -15,6 +15,38 @@ static func count_walls(grid: GridMap2D, level: int = 0) -> int:
 	return count
 
 
+## Mapa aleatorio reproducible: ~85% de celdas con suelo, ~16% de aristas con pared y ~4% con
+## puerta. Es para probar rutas y movimiento sobre laberintos irregulares.
+static func random_state(rng: RandomNumberGenerator, size: Vector2i) -> GameState:
+	var state := GameState.new(size)
+	for y in range(size.y):
+		for x in range(size.x):
+			if rng.randf() < 0.85:
+				state.build.place_floor(Vector2i(x, y), 0)
+	for y in range(size.y + 1):
+		for x in range(size.x + 1):
+			for axis: Edge.Axis in [Edge.Axis.X, Edge.Axis.Y]:
+				var edge := Edge.new(Vector2i(x, y), axis)
+				if not state.grid.is_edge_valid(edge, 0):
+					continue
+				var roll: float = rng.randf()
+				if roll < 0.16:
+					state.build.place_wall(edge, 0)
+				elif roll < 0.20:
+					state.build.place_door(edge, 0)
+	return state
+
+
+## Todas las celdas con suelo de un nivel, en orden de fila.
+static func walkable_cells(grid: GridMap2D, level: int = 0) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	for y in range(grid.size.y):
+		for x in range(grid.size.x):
+			if grid.is_walkable(Vector2i(x, y), level):
+				cells.append(Vector2i(x, y))
+	return cells
+
+
 ## Cuenta las aristas de un tipo dado en un nivel.
 static func count_edges(grid: GridMap2D, type: CellTypes.EdgeType, level: int = 0) -> int:
 	var count: int = 0

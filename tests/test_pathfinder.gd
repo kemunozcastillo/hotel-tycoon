@@ -187,7 +187,7 @@ func test_matches_dijkstra_on_random_maps() -> void:
 	var compared: int = 0
 	var unreachable: int = 0
 	for map_index in range(25):
-		var state := _random_map(rng, Vector2i(10, 9))
+		var state: GameState = GridTestHelpers.random_state(rng, Vector2i(10, 9))
 		var cells: Array[Vector2i] = []
 		for y in range(9):
 			for x in range(10):
@@ -208,26 +208,6 @@ func test_matches_dijkstra_on_random_maps() -> void:
 			assert_near(Pathfinder.path_cost(state.grid, 0, path), expected, "mapa %d: coste %s -> %s" % [map_index, str(from), str(to)], 0.001)
 			_assert_path_is_legal(state, path)
 	assert_true(compared == 300 and unreachable > 20 and unreachable < 280, "la muestra mezcla casos alcanzables e inalcanzables (%d inalcanzables)" % unreachable)
-
-
-func _random_map(rng: RandomNumberGenerator, size: Vector2i) -> GameState:
-	var state := GameState.new(size)
-	for y in range(size.y):
-		for x in range(size.x):
-			if rng.randf() < 0.85:
-				state.build.place_floor(Vector2i(x, y), 0)
-	for y in range(size.y + 1):
-		for x in range(size.x + 1):
-			for axis: Edge.Axis in [Edge.Axis.X, Edge.Axis.Y]:
-				var edge := Edge.new(Vector2i(x, y), axis)
-				if not state.grid.is_edge_valid(edge, 0):
-					continue
-				var roll: float = rng.randf()
-				if roll < 0.16:
-					state.build.place_wall(edge, 0)
-				elif roll < 0.20:
-					state.build.place_door(edge, 0)
-	return state
 
 
 ## Dijkstra sencillo (sin montículo) con las reglas de movimiento escritas de nuevo, de forma

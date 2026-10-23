@@ -13,6 +13,10 @@ signal level_added(level: int)
 
 var size: Vector2i
 
+## Contador que sube con cada cambio del mapa (suelo, paredes, puertas o niveles). Permite a
+## quien guarda un resultado derivado (como una ruta) saber si sigue siendo válido.
+var revision: int = 0
+
 var _levels: Dictionary = {} # int -> LevelLayer
 
 
@@ -27,6 +31,7 @@ func add_level(level: int) -> bool:
 	if _levels.has(level):
 		return false
 	_levels[level] = LevelLayer.new(size)
+	revision += 1
 	level_added.emit(level)
 	return true
 
@@ -64,6 +69,7 @@ func set_floor_type(cell: Vector2i, level: int, type: CellTypes.FloorType) -> bo
 		return false
 	if not _layer(level).set_floor_type(cell, type):
 		return false
+	revision += 1
 	cell_changed.emit(cell, level)
 	return true
 
@@ -80,6 +86,7 @@ func set_edge_type(edge: Edge, level: int, type: CellTypes.EdgeType) -> bool:
 		return false
 	if not _layer(level).set_edge_type(edge, type):
 		return false
+	revision += 1
 	edge_changed.emit(edge, level)
 	return true
 
@@ -100,6 +107,19 @@ func set_wall(edge: Edge, level: int, on: bool) -> bool:
 	if not has_wall(edge, level):
 		return false
 	return set_edge_type(edge, level, CellTypes.EdgeType.NONE)
+
+
+## Única función que decide si una celda se puede pisar. Hoy: tiene suelo construido. Cuando
+## exista un terreno predefinido (calle, acera, pasto) se ampliará aquí, sin tocar a quien
+## pregunta (pathfinder, agentes).
+func is_walkable(cell: Vector2i, level: int) -> bool:
+	return has_level(level) and in_bounds(cell) and get_floor_type(cell, level) != CellTypes.FloorType.NONE
+
+
+## Coste de pisar la celda, como multiplicador de la distancia (1.0 = normal; debe ser >= 1.0).
+## Hoy siempre 1.0; el terreno futuro lo variará (preferir la acera al pasto, por ejemplo).
+func get_walk_cost(_cell: Vector2i, _level: int) -> float:
+	return 1.0
 
 
 ## true si no se puede pasar de `a` a `b`: solo lo bloquea una pared (las puertas se cruzan).

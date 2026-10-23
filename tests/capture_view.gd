@@ -13,10 +13,17 @@ func _initialize() -> void:
 	var main: Node = load("res://view/main.tscn").instantiate()
 	root.add_child(main)
 	await process_frame # _ready de la escena corre antes de este punto
-	_build_demo(main.state as GameState)
+	var state: GameState = main.state as GameState
+	_build_demo(state)
 
-	# Esperar unos fotogramas para que se dibuje todo.
-	for i in range(8):
+	# Unos agentes paseando por la escena (reloj a x3 para que se repartan en pocos segundos).
+	state.wander.set_seed(4)
+	state.clock.set_speed(GameClock.Speed.X3)
+	for cell: Vector2i in [Vector2i(13, 13), Vector2i(18, 13), Vector2i(17, 16), Vector2i(14, 20), Vector2i(8, 16), Vector2i(19, 20)]:
+		state.agents.spawn(cell, 0)
+
+	# Esperar a que se dibuje todo y a que los agentes se pongan en marcha.
+	for i in range(240):
 		await process_frame
 	var image: Image = root.get_texture().get_image()
 	var error: Error = image.save_png(output)

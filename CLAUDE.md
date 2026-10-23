@@ -42,6 +42,26 @@ Referencias de género: Project Hospital y Prison Architect.
   El lado corto mínimo se mide sobre el rectángulo que contiene a la habitación (una en L
   de 3 celdas cuenta como lado 2). Para añadir un tipo basta con una entrada nueva en el JSON.
   Al exportar el juego hay que incluir `data/*.json` en el filtro de exportación del preset.
+- **Caminar**: `GridMap2D.is_walkable(celda, nivel)` es la **única** función que decide si se
+  puede pisar una celda (hoy: tiene suelo construido) y `get_walk_cost` su coste (hoy siempre
+  1.0, debe ser >= 1.0). Pathfinder, agentes y paseo preguntan solo ahí y nunca miran el suelo.
+  Cuando exista un terreno predefinido (calle, acera, pasto: catálogo `data/terrain_types.json`
+  con id, caminable, coste y color, y una capa de terreno por nivel bajo el suelo construido), se
+  amplía en ese único sitio. Entonces habrá que limitar por zonas o tareas adónde pasea cada
+  agente. `GridMap2D.revision` sube con cada cambio del mapa (para invalidar rutas guardadas).
+- **Pathfinder** (`sim/pathfinder.gd`): A* de 8 direcciones sobre `is_walkable` y paredes. Un
+  paso diagonal solo es válido si los dos pasos ortogonales que lo rodean también lo son (no se
+  cortan esquinas). La puerta se cruza, la pared no. `find_path` devuelve la ruta con origen y
+  destino incluidos (vacía si no hay camino o se supera `DEFAULT_MAX_EXPANSIONS`). El origen
+  puede no ser pisable (un agente sobre suelo recién quitado debe poder salir).
+- **Agentes** (`Agent`, `AgentRegistry`): se mueven por una ruta a `Agent.DEFAULT_SPEED` = 2
+  celdas por **minuto de juego** (el reloj manda: pausa = quietos, x3 = el triple). Posición
+  continua en coordenadas de cuadrícula (centro de celda = x+0.5, y+0.5). Si el mapa cambia
+  (`revision`) comprueban su ruta, la recalculan si hace falta y quedan `BLOCKED` (reintentando
+  al cambiar el mapa) si ya no hay camino. Sin colisiones entre agentes. `WanderBehavior` es el
+  comportamiento **provisional**: los agentes libres con `wanders` esperan 1-4 minutos y van a
+  una celda alcanzable a <= 12 celdas; se sustituirá por necesidades y tareas. Tiene semilla
+  (`state.wander.set_seed`) para pruebas reproducibles.
 - Convención de ejes de la cuadrícula: X crece hacia abajo-derecha en pantalla, Y hacia
   abajo-izquierda (rombo 2:1 de 64x32, `TileSet.TILE_LAYOUT_DIAMOND_DOWN`).
 
@@ -62,12 +82,15 @@ Referencias de género: Project Hospital y Prison Architect.
 sim/     lógica pura: GridMap2D (niveles, suelo, paredes y puertas por arista), Edge, LevelLayer,
          GridShapes (rectángulos), BuildCommands, Room / RoomDetector / RoomRegistry,
          RoomType / RoomTypeCatalog / RoomValidator (RoomStatus, RoomCheck),
+         MinHeap, Pathfinder, Agent / AgentRegistry / WanderBehavior,
          GameClock, GameState (raíz de la simulación)
 view/    main.tscn/main.gd (escena principal), IsoProjection (única que conoce el rombo 64x32),
          TilesetFactory (arte provisional por código), LevelView (TileMapLayer), GridLines,
-         IsoCamera, CellCursor, ShapePreview, RoomOverlay, BuildController
-ui/      BuildToolbar (herramientas y paleta de tipos), RoomInfoPanel, RoomTexts (textos en
-         español de requisitos y problemas), ClockLabel (día, hora y velocidad)
+         IsoCamera, CellCursor, ShapePreview, RoomOverlay, AgentsLayer / AgentView,
+         BuildController
+ui/      BuildToolbar (herramientas, paleta de tipos y herramienta Agente), RoomInfoPanel,
+         AgentInfoPanel, RoomTexts (textos en español de requisitos y problemas), ClockLabel
+         (día, hora y velocidad)
 data/    room_types.json (tipos de habitación y sus requisitos)
 assets/  arte y audio (vacío; el arte provisional se genera por código)
 tests/   suites headless de sim/ y view/ más herramientas de verificación con ventana
@@ -102,13 +125,16 @@ Código de salida 1 si algún test falla. Para añadir una suite: crear `tests/t
 - `tests/interaction_check.gd`: inyecta ratón y teclado en la escena real y comprueba hover,
   cámara, construcción (un baño de 2x2 con 8 clics), formas con Mayús, herramienta Habitación,
   puertas, detección de habitaciones, asignación de tipos con clics reales sobre la barra, panel
-  de información y reloj. Admite hasta siete rutas de PNG tras `--`: construcción, resaltado de
-  celda, resaltado de arista, vista previa de forma, puerta, baño sin puerta y dormitorio mal
-  asignado.
-- `tests/capture_view.gd`: captura una escena de demostración con varias habitaciones.
+  de información, herramienta Agente (crear, seleccionar, enviar, bloqueo, Supr), la ordenación
+  de los agentes con las paredes (comprobada por el color real de los píxeles, en los dos ejes) y
+  reloj. Admite hasta once rutas de PNG tras `--` (en el orden en que las guarda cada comprobación;
+  ver las llamadas `_save_args`).
+- `tests/capture_view.gd`: captura una escena de demostración con varias habitaciones y agentes
+  paseando.
 
 ```bash
-"$GODOT" --path . --script res://tests/interaction_check.gd -- build.png cell.png edge.png preview.png door.png bath.png wrong.png
+"$GODOT" --path . --script res://tests/interaction_check.gd -- captura0.png captura1.png
+"$GODOT" --path . --script res://tests/capture_view.gd -- demo.png
 "$GODOT" --path . --script res://tests/capture_view.gd -- demo.png
 ```
 
@@ -134,7 +160,14 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
   otro, Godot avisa primero de que el anterior se soltó cuando el nuevo ya está pulsado:
   `BuildToolbar` no deselecciona la herramienta en ese caso (`_another_button_is_pressed`), o la
   sincronización de botones desmarcaría el recién pulsado.
-- El panel de información (`RoomInfoPanel`) ignora el ratón para no tapar la construcción.
+- **Agentes y paredes**: los `AgentView` cuelgan de `LevelView.get_entities_root()`, un nodo con
+  `y_sort_enabled` que también contiene la capa de paredes. La posición del nodo es el punto de
+  los pies. Los tiles de pared llevan `y_sort_origin = -8` (el punto medio de sus aristas está 8 px
+  sobre el centro de la celda), que ordena bien al agente dentro de la celda y al otro lado de la
+  pared. Desde cámaras como la actual los agentes dentro de una habitación quedan tapados por sus
+  paredes frontales; hará falta un modo corte.
+- Los paneles de información (`RoomInfoPanel`, `AgentInfoPanel`) ignoran el ratón para no tapar la
+  construcción.
 - En el modo arista, el punto del ratón se interpreta sobre el plano del suelo, no sobre la
   altura de la pared.
 - Hay un solo nivel visible (0). `GridMap2D` y `LevelView` ya reciben el nivel como parámetro.
@@ -153,4 +186,7 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
   `data/room_types.json`) activan la herramienta Tipo; clic izquierdo dentro de una habitación le
   asigna el tipo, clic derecho se lo quita. Al pasar el cursor sobre una habitación se resalta y
   el panel (abajo a la izquierda) muestra sus requisitos con OK / NO.
+- Agentes (herramienta de desarrollo, botón Agente): clic izquierdo sobre suelo libre crea un
+  agente y lo selecciona; sobre un agente, lo selecciona. Clic derecho envía al seleccionado a esa
+  celda (se dibuja su ruta), `Supr` lo elimina. Los agentes libres pasean solos.
 - Reloj: `Espacio` pausa, `1` / `2` / `3` velocidades.

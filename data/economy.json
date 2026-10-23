@@ -1,0 +1,12 @@
+{
+	"start_money": 2000,
+	"build_prices": {
+		"floor": 10,
+		"wall": 8,
+		"door": 25
+	},
+	"sell_rate_new": 1.0,
+	"sell_rate_used": 0.85,
+	"new_window_minutes": 60,
+	"deposit_rate": 0.5
+}

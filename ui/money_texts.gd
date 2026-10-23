@@ -76,6 +76,20 @@ static func quote_text(quote: BuildQuote) -> String:
 	return " · ".join(parts)
 
 
+## "nuevos" / "usadas"...: el estado de una pieza concordando con su género (suelo es masculino;
+## pared y puerta, femenino).
+static func condition_label(kind: BuildItem.Kind, condition: BuildItem.Condition) -> String:
+	var feminine: bool = kind != BuildItem.Kind.FLOOR
+	if condition == BuildItem.Condition.NEW:
+		return "nuevas" if feminine else "nuevos"
+	return "usadas" if feminine else "usados"
+
+
+## Una fila del inventario: "Suelos nuevos ×12 · vale 120 €".
+static func stock_row_text(kind: BuildItem.Kind, condition: BuildItem.Condition, count: int, value: int) -> String:
+	return "%s %s ×%d · vale %s" % [BuildItem.label_plural(kind), condition_label(kind, condition), count, format(value)]
+
+
 ## Aviso cuando una orden se rechaza por falta de dinero.
 static func insufficient_text(required_balance: int, balance: int) -> String:
 	return "Dinero insuficiente: hacen falta %s y hay %s" % [format(required_balance), format(balance)]

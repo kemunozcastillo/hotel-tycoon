@@ -28,6 +28,8 @@ var wall_mode_bar: WallModeBar
 var money_button: MoneyButton
 var finance_panel: FinancePanel
 var notice_label: NoticeLabel
+var removal_mode_bar: RemovalModeBar
+var inventory_panel: InventoryPanel
 
 
 func _ready() -> void:
@@ -132,9 +134,23 @@ func _ready() -> void:
 	wall_mode_bar.mode_selected.connect(level_view.set_wall_mode)
 	level_view.wall_mode_changed.connect(wall_mode_bar.set_mode)
 
+	removal_mode_bar = RemovalModeBar.new()
+	hud.add_child(removal_mode_bar)
+	removal_mode_bar.setup(state.inventory.removal_mode)
+	removal_mode_bar.mode_selected.connect(_on_removal_mode_selected)
+	state.inventory.removal_mode_changed.connect(removal_mode_bar.set_mode)
+
+	inventory_panel = InventoryPanel.new()
+	hud.add_child(inventory_panel)
+	inventory_panel.setup(state.inventory, state.economy, state.rules)
+
 
 func _process(delta: float) -> void:
 	state.tick(delta)
+
+
+func _on_removal_mode_selected(mode: Inventory.RemovalMode) -> void:
+	state.inventory.removal_mode = mode
 
 
 func _on_funds_insufficient(required_balance: int, balance: int) -> void:
@@ -159,7 +175,8 @@ func _refresh_hovered_room() -> void:
 
 
 ## Atajos: Espacio pausa/reanuda el reloj; 1, 2 y 3 eligen la velocidad; C cambia el modo de
-## visualización de las paredes; F abre y cierra las finanzas.
+## visualización de las paredes; F abre y cierra las finanzas; I el inventario; V alterna entre
+## vender y guardar lo que se quita.
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if key == null or not key.pressed or key.echo:
@@ -167,6 +184,13 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	match key.keycode:
 		KEY_F:
 			finance_panel.toggle()
+		KEY_I:
+			inventory_panel.toggle()
+		KEY_V:
+			if not key.ctrl_pressed:
+				state.inventory.removal_mode = (Inventory.RemovalMode.STORE
+						if state.inventory.removal_mode == Inventory.RemovalMode.SELL
+						else Inventory.RemovalMode.SELL)
 		KEY_C:
 			if not key.ctrl_pressed:
 				level_view.set_wall_mode(WallViewMode.next(level_view.get_wall_mode()))

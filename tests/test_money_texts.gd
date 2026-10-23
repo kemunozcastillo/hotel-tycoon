@@ -131,3 +131,29 @@ func test_finance_report_only_lists_the_last_days() -> void:
 	assert_false(text.contains("Día 1:"), "el día 1 queda fuera de los últimos siete")
 	assert_true(text.contains("Día %d:" % state.clock.get_day()))
 	assert_eq(text.count("  Día "), MoneyTexts.REPORT_DAYS)
+
+
+# --- Inventario --------------------------------------------------------------------------------
+
+func test_condition_label_agrees_with_gender() -> void:
+	assert_eq(MoneyTexts.condition_label(BuildItem.Kind.FLOOR, BuildItem.Condition.NEW), "nuevos")
+	assert_eq(MoneyTexts.condition_label(BuildItem.Kind.FLOOR, BuildItem.Condition.USED), "usados")
+	assert_eq(MoneyTexts.condition_label(BuildItem.Kind.WALL, BuildItem.Condition.NEW), "nuevas")
+	assert_eq(MoneyTexts.condition_label(BuildItem.Kind.DOOR, BuildItem.Condition.USED), "usadas")
+
+
+func test_stock_row_text_and_rows_use_sale_values() -> void:
+	var rules := EconomyRules.new()
+	var inventory := Inventory.new()
+	assert_eq(InventoryPanel.stock_rows(inventory, rules).size(), 0, "vacío: ninguna fila")
+	inventory.add(BuildItem.Kind.FLOOR, BuildItem.Condition.NEW, 3)
+	inventory.add(BuildItem.Kind.WALL, BuildItem.Condition.USED, 2)
+	var rows: Array[Dictionary] = InventoryPanel.stock_rows(inventory, rules)
+	assert_eq(rows.size(), 2)
+	assert_eq(rows[0]["kind"], BuildItem.Kind.FLOOR)
+	assert_eq(rows[0]["value"], 3 * rules.sale_value(BuildItem.Kind.FLOOR, BuildItem.Condition.NEW))
+	assert_eq(rows[1]["condition"], BuildItem.Condition.USED)
+	var text: String = MoneyTexts.stock_row_text(rows[1]["kind"], rows[1]["condition"], rows[1]["count"], rows[1]["value"])
+	assert_true(text.contains("×2"))
+	assert_true(text.contains("usadas"))
+	assert_true(text.contains(MoneyTexts.format(rows[1]["value"])))

@@ -26,6 +26,7 @@ func _initialize() -> void:
 	await _check_guests()
 	await _check_wall_modes()
 	await _check_economy()
+	await _check_inventory()
 	await _check_clock()
 
 	# Capturas del resaltado: modo celda (args[0]) y modo arista (args[1]).
@@ -794,6 +795,67 @@ func _check_economy() -> void:
 	controller.set_tool(BuildController.Tool.NONE)
 	state.build.remove_floor(Vector2i(20, 20), 0)
 	state.ledger.record(Ledger.Category.SALE, 10000000, "fondos de prueba")
+	state.clock.set_speed(GameClock.Speed.X1)
+	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
+	await _frames(3)
+
+
+func _check_inventory() -> void:
+	print("== inventario")
+	var state: GameState = _main.state
+	var controller: BuildController = _main.build_controller
+	var toolbar: BuildToolbar = _main.toolbar
+	var camera: IsoCamera = _main.camera
+	var bar: RemovalModeBar = _main.removal_mode_bar
+	var panel: InventoryPanel = _main.inventory_panel
+	var inventory: Inventory = state.inventory
+
+	state.clock.set_speed(GameClock.Speed.PAUSED) # las piezas siguen siendo nuevas
+	camera.position = IsoProjection.grid_to_world(Vector2(22, 22))
+	await _frames(4)
+
+	# Selector Vender / Guardar: botones y tecla V.
+	_check(inventory.removal_mode == Inventory.RemovalMode.SELL and bar.get_button(Inventory.RemovalMode.SELL).button_pressed, "empieza en Vender")
+	await _click_button(bar.get_button(Inventory.RemovalMode.STORE))
+	_check(inventory.removal_mode == Inventory.RemovalMode.STORE, "el botón Guardar cambia el modo")
+	await _press_key(KEY_V)
+	_check(inventory.removal_mode == Inventory.RemovalMode.SELL and bar.get_button(Inventory.RemovalMode.SELL).button_pressed, "la tecla V vuelve a Vender y marca el botón")
+	await _press_key(KEY_V)
+	_check(inventory.removal_mode == Inventory.RemovalMode.STORE and bar.get_button(Inventory.RemovalMode.STORE).button_pressed, "y otra vez a Guardar")
+	_save_args(20)
+
+	# Quitar un suelo recién puesto en modo Guardar: no entra dinero y la pieza va al inventario.
+	await _click_button(toolbar.get_tool_button(BuildController.Tool.FLOOR))
+	await _click_grid(_center(Vector2i(20, 20)), MOUSE_BUTTON_LEFT)
+	var balance_built: int = state.ledger.balance
+	await _click_grid(_center(Vector2i(20, 20)), MOUSE_BUTTON_RIGHT)
+	_check(state.grid.get_floor_type(Vector2i(20, 20), 0) == CellTypes.FloorType.NONE, "el suelo se quita")
+	_check(state.ledger.balance == balance_built, "en modo Guardar no entra dinero")
+	_check(inventory.count(BuildItem.Kind.FLOOR, BuildItem.Condition.NEW) == 1, "y el suelo nuevo queda en el inventario")
+
+	# Volver a colocarlo sale gratis.
+	await _click_grid(_center(Vector2i(20, 20)), MOUSE_BUTTON_LEFT)
+	_check(state.ledger.balance == balance_built and inventory.total_items() == 0, "reutilizar una pieza del inventario no cuesta nada")
+	await _click_grid(_center(Vector2i(20, 20)), MOUSE_BUTTON_RIGHT)
+
+	# Panel de inventario (tecla I) y venta con su botón.
+	_check(not panel.is_open(), "el inventario empieza cerrado")
+	await _press_key(KEY_I)
+	_check(panel.is_open() and panel.get_plain_text().contains("Suelos nuevos ×1"), "la tecla I abre el inventario: '%s'" % panel.get_plain_text())
+	_save_args(21)
+	var sell_buttons: Array[Button] = panel.get_sell_buttons()
+	_check(sell_buttons.size() == 1, "hay un botón de vender por fila")
+	if sell_buttons.size() == 1:
+		await _click_button(sell_buttons[0])
+		_check(state.ledger.balance == balance_built + state.rules.sale_value(BuildItem.Kind.FLOOR, BuildItem.Condition.NEW), "vender entrega el valor de la pieza")
+		_check(inventory.total_items() == 0 and panel.get_plain_text().contains("Vacío"), "y el inventario queda vacío: '%s'" % panel.get_plain_text())
+	await _press_key(KEY_I)
+	_check(not panel.is_open(), "la tecla I lo cierra")
+
+	# Limpieza.
+	await _press_key(KEY_V)
+	_check(inventory.removal_mode == Inventory.RemovalMode.SELL, "se deja en Vender")
+	controller.set_tool(BuildController.Tool.NONE)
 	state.clock.set_speed(GameClock.Speed.X1)
 	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
 	await _frames(3)

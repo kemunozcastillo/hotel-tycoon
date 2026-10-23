@@ -77,8 +77,36 @@ Referencias de género: Project Hospital y Prison Architect.
   irse (o sin entrada válida) desaparece en el sitio. Los ids `bedroom` y `reception` están en
   `GuestRegistry` y deben existir en `data/room_types.json`. `GuestSpawner` hace llegar un huésped
   cada 15-45 min de juego mientras haya entrada válida y recepción operativa y haya menos de 4
-  esperando. Todos estos tiempos son constantes provisionales con comentario. Sin dinero ni
-  valoraciones todavía. `GameState.tick` ordena: spawner, huéspedes, paseo, agentes, habitaciones.
+  esperando. Todos estos tiempos son constantes provisionales con comentario. Sin valoraciones
+  todavía. `GameState.tick` ordena: spawner, huéspedes, paseo, agentes, habitaciones, economía.
+- **Economía** (`sim/`, todo enteros en €): reglas en `data/economy.json` (`EconomyRules`: dinero
+  inicial 2000, precio de construir suelo 10 / pared 8 / puerta 25, venta 100% si la pieza es
+  **nueva** y 85% si es **usada**, ventana de "nueva" 60 min, anticipo 50%; `load_default` cae a
+  valores por defecto con avisos en `warnings` si el JSON está mal). Los precios de estancia y el
+  mantenimiento diario viven en `data/room_types.json` (`stay_price`, `stay_price_per_extra_cell`
+  sobre el área mínima, `daily_upkeep`). **`GameState` usa por defecto `EconomyRules.without_costs()`**
+  (construir gratis, sin cobros) para que los tests de otras fases no necesiten dinero; el juego real
+  pasa `EconomyRules.load_default()` (`view/main.gd`) y los tests de economía pasan sus reglas
+  (`HotelFixture.build(..., reglas)`). `Ledger` guarda el saldo y los movimientos por categoría
+  (construcción, venta, anticipo, liquidación, anticipo devuelto, mantenimiento) con totales por
+  día; el saldo solo baja de 0 por mantenimiento o devoluciones, nunca por construir.
+- **Construir cuesta**: `BuildCommands` funciona en tres pasos, **plan → presupuesto → ejecución**:
+  cada orden se convierte en una lista de `BuildOp`, `BuildQuote.evaluate` la simula en orden (coste,
+  ingresos, piezas del inventario, vendidas, guardadas, saldo necesario) y `execute` aplica
+  exactamente esa lista. Las formas son **atómicas**: si no hay saldo no se construye ni una celda y
+  se emite `funds_insufficient`. La vista previa (`ShapePreview`) muestra el presupuesto de la misma
+  lista. Se usan primero las piezas del `Inventory` (gratis, las usadas antes). Nunca se gana dinero
+  construyendo y vendiendo (el valor de venta es <= el precio y la marca de "usada" persiste).
+- **Piezas nuevas y usadas**: `PlacedPieces` anota cuándo se colocó cada pieza (por señales de la
+  cuadrícula). Una pieza es nueva si lleva menos de `new_window_minutes` y no salió del inventario;
+  si no, usada (lo desconocido también). Al quitar, `Inventory.removal_mode` decide: **SELL** (entra su
+  valor) o **STORE** (va al inventario con su estado; si `capacity_provider` dice que no cabe, se
+  vende). Inventario global y sin límite; el gancho `capacity_provider` es para la futura habitación
+  almacén. `Economy.sell_stock(tipo, estado, cantidad)` vende existencias.
+- **Pagos**: el huésped paga el 50% (`deposit_of`) al asignarle dormitorio y el resto al terminar la
+  estancia; si no la completa, se devuelve el anticipo (y al reasignarle otra habitación paga uno
+  nuevo). Quien se va enfadado antes de tener habitación no paga. El mantenimiento diario de cada
+  habitación con tipo se cobra al cambiar de día (`Economy.update` cobra cada día pendiente).
 - Convención de ejes de la cuadrícula: X crece hacia abajo-derecha en pantalla, Y hacia
   abajo-izquierda (rombo 2:1 de 64x32, `TileSet.TILE_LAYOUT_DIAMOND_DOWN`).
 
@@ -101,6 +129,8 @@ sim/     lógica pura: GridMap2D (niveles, suelo, paredes y puertas por arista),
          RoomType / RoomTypeCatalog / RoomValidator (RoomStatus, RoomCheck),
          MinHeap, Pathfinder, Agent / AgentRegistry / WanderBehavior,
          EntrancePoints, Guest / GuestRegistry / RoomOccupancy / GuestSpawner,
+         EconomyRules / Ledger / BuildItem / PlacedPieces / Inventory / BuildOp / BuildQuote /
+         Economy (dinero, costes, inventario y pagos),
          GameClock, GameState (raíz de la simulación)
 view/    main.tscn/main.gd (escena principal), IsoProjection (única que conoce el rombo 64x32),
          TilesetFactory (arte provisional por código), LevelView (TileMapLayer), GridLines,
@@ -109,8 +139,10 @@ view/    main.tscn/main.gd (escena principal), IsoProjection (única que conoce 
          paredes)
 ui/      BuildToolbar (herramientas, paleta de tipos, Entrada y Agente), WallModeBar, RoomInfoPanel,
          AgentInfoPanel, HotelStatusLabel, RoomTexts y GuestTexts (textos en español), ClockLabel
-         (día, hora y velocidad)
-data/    room_types.json (tipos de habitación y sus requisitos)
+         (día, hora y velocidad), MoneyTexts (importes y textos de dinero), MoneyButton (saldo),
+         FinancePanel, NoticeLabel (avisos), RemovalModeBar (Vender/Guardar), InventoryPanel
+data/    room_types.json (tipos de habitación, requisitos, precios de estancia y mantenimiento),
+         economy.json (reglas de economía)
 assets/  arte y audio (vacío; el arte provisional se genera por código)
 tests/   suites headless de sim/ y view/ más herramientas de verificación con ventana
 ```
@@ -148,11 +180,15 @@ Código de salida 1 si algún test falla. Para añadir una suite: crear `tests/t
   de los agentes con las paredes (comprobada por el color real de los píxeles, en los dos ejes), el
   ciclo completo de un huésped (herramienta Entrada, tipos Recepción y Dormitorio, llegada,
   check-in, alojamiento, paneles, salida), el modo corte de paredes (tecla C, botones, y la
-  visibilidad de un agente por píxeles en los cuatro modos) y reloj. Admite hasta diecisiete rutas
-  de PNG tras `--` (en el orden en que las guarda cada comprobación; ver las llamadas `_save_args`).
+  visibilidad de un agente por píxeles en los cuatro modos), el dinero (saldo, vista previa con
+  coste, fondos insuficientes, demoler), el inventario (V, I, guardar, reutilizar gratis, vender) y
+  reloj. Admite hasta veintidós rutas de PNG tras `--` (en el orden en que las guarda cada
+  comprobación; ver las llamadas `_save_args`). La escena real tiene economía activa, así que
+  la comprobación del dinero fija un saldo de prueba y deja fondos de sobra al terminar para las
+  demás.
   Las comprobaciones de ordenación con las paredes fijan el modo Arriba (con paredes bajas no
   tapan al agente).
-- `tests/hotel_fixture.gd` (`HotelFixture.build(n_dormitorios, semilla, llegadas_automaticas)`):
+- `tests/hotel_fixture.gd` (`HotelFixture.build(n_dormitorios, semilla, llegadas_automaticas, reglas_de_economia)`):
   hotel de prueba (vestíbulo, entrada, recepción y N dormitorios con puerta) para los tests de
   huéspedes. Las llegadas automáticas vienen desactivadas; cada test llama a `guests.arrive`.
 - `tests/capture_view.gd`: captura una escena de demostración con varias habitaciones y agentes
@@ -241,4 +277,10 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
   lo ocupa. Los huéspedes llevan sombrero (y maleta al llegar o irse).
 - Paredes: el selector de abajo en el centro (Arriba / Corte / Bajas / Ocultas) o la tecla `C`, que
   rota entre los cuatro modos. Corte es el modo por defecto.
+- Dinero: el saldo (arriba a la derecha, bajo el reloj; rojo en negativo) abre las finanzas, igual
+  que `F`. Al arrastrar una forma, la vista previa muestra su coste o lo que devuelve (en rojo si no
+  hay fondos, y entonces no se construye nada y sale un aviso). Abajo, sobre el selector de paredes,
+  "Al quitar": **Vender** (entra el dinero) o **Guardar** (la pieza va al inventario); tecla `V` los
+  alterna. `I` abre el inventario: piezas nuevas y usadas con su valor y un botón para venderlas.
+  La habitación almacén (capacidad del inventario) está pendiente.
 - Reloj: `Espacio` pausa, `1` / `2` / `3` velocidades.

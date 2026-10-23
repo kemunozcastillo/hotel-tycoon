@@ -10,6 +10,7 @@ var clock: GameClock
 var room_types: RoomTypeCatalog
 var rooms: RoomRegistry
 var agents: AgentRegistry
+var wander: WanderBehavior
 
 
 ## `catalog` permite probar con otros tipos; por defecto se carga data/room_types.json.
@@ -20,10 +21,12 @@ func _init(map_size: Vector2i = DEFAULT_MAP_SIZE, catalog: RoomTypeCatalog = nul
 	room_types = catalog if catalog != null else RoomTypeCatalog.load_default()
 	rooms = RoomRegistry.new(grid, room_types)
 	agents = AgentRegistry.new(grid)
+	wander = WanderBehavior.new(grid, agents)
 
 
 ## Avanza la simulación con el tiempo real transcurrido (en segundos).
 func tick(real_delta: float) -> void:
 	var game_minutes: float = clock.tick(real_delta)
+	wander.tick(game_minutes)
 	agents.tick(game_minutes)
 	rooms.refresh()

@@ -16,18 +16,32 @@ var _rect: Rect2i = Rect2i()
 var _kind: Kind = Kind.FILL
 var _removing: bool = false
 var _active: bool = false
+var _cost_text: String = ""
+var _affordable: bool = true
 
 
 func _ready() -> void:
 	z_index = 9
 
 
-func show_shape(rect: Rect2i, kind: Kind, removing: bool) -> void:
+## Dibuja la forma. `cost_text` es el coste (o lo que se recupera) que se muestra bajo el tamaño;
+## si `affordable` es false se pinta en rojo y la forma también (no se podrá construir).
+func show_shape(rect: Rect2i, kind: Kind, removing: bool, cost_text: String = "", affordable: bool = true) -> void:
 	_rect = rect
 	_kind = kind
 	_removing = removing
+	_cost_text = cost_text
+	_affordable = affordable
 	_active = true
 	queue_redraw()
+
+
+func get_cost_text() -> String:
+	return _cost_text
+
+
+func is_affordable() -> bool:
+	return _affordable
 
 
 func is_active() -> bool:
@@ -47,7 +61,7 @@ func clear() -> void:
 func _draw() -> void:
 	if not _active:
 		return
-	var color: Color = REMOVE_COLOR if _removing else ADD_COLOR
+	var color: Color = REMOVE_COLOR if _removing or not _affordable else ADD_COLOR
 	if _kind != Kind.OUTLINE:
 		var fill := Color(color, CELL_ALPHA)
 		for cell: Vector2i in GridShapes.rect_cells(_rect):
@@ -71,3 +85,11 @@ func _draw_size_label(color: Color) -> void:
 	var origin: Vector2 = center - Vector2(text_size.x * 0.5, 0.0) - Vector2(0, TilesetFactory.WALL_HEIGHT)
 	draw_string_outline(font, origin, text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE, 4, Color(0, 0, 0, 0.85))
 	draw_string(font, origin, text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE, color.lightened(0.35))
+	if _cost_text.is_empty():
+		return
+	# El coste, justo debajo del tamaño; en rojo si no hay dinero para hacerlo.
+	var cost_size: Vector2 = font.get_string_size(_cost_text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE)
+	var cost_origin: Vector2 = center - Vector2(cost_size.x * 0.5, 0.0) - Vector2(0, TilesetFactory.WALL_HEIGHT - FONT_SIZE - 2)
+	var cost_color: Color = Color(1.0, 0.5, 0.45) if not _affordable else Color(1.0, 0.92, 0.55)
+	draw_string_outline(font, cost_origin, _cost_text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE, 4, Color(0, 0, 0, 0.85))
+	draw_string(font, cost_origin, _cost_text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE, cost_color)

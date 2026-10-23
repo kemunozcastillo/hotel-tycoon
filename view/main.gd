@@ -7,6 +7,7 @@ const CAMERA_MARGIN: float = 200.0 # cuánto puede salirse la cámara del mapa
 const HUD_MARGIN: float = 8.0
 const CLOCK_LABEL_WIDTH: float = 240.0
 const STATUS_LABEL_WIDTH: float = 520.0
+const MONEY_ROW_HEIGHT: float = 30.0 # la fila del saldo, entre el reloj y el resumen del hotel
 
 var state: GameState
 var level_view: LevelView
@@ -24,11 +25,14 @@ var room_info_panel: RoomInfoPanel
 var clock_label: ClockLabel
 var hotel_status_label: HotelStatusLabel
 var wall_mode_bar: WallModeBar
+var money_button: MoneyButton
+var finance_panel: FinancePanel
+var notice_label: NoticeLabel
 
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(BACKGROUND_COLOR)
-	state = GameState.new()
+	state = GameState.new(GameState.DEFAULT_MAP_SIZE, null, EconomyRules.load_default())
 
 	level_view = LevelView.new()
 	add_child(level_view)
@@ -99,9 +103,28 @@ func _ready() -> void:
 	hotel_status_label.anchor_right = 1.0
 	hotel_status_label.offset_left = -STATUS_LABEL_WIDTH - HUD_MARGIN
 	hotel_status_label.offset_right = -HUD_MARGIN
-	hotel_status_label.offset_top = HUD_MARGIN + 28.0
+	hotel_status_label.offset_top = HUD_MARGIN + 28.0 + MONEY_ROW_HEIGHT
 	hud.add_child(hotel_status_label)
 	hotel_status_label.setup(state, LEVEL)
+
+	money_button = MoneyButton.new()
+	money_button.anchor_left = 1.0
+	money_button.anchor_right = 1.0
+	money_button.offset_left = -STATUS_LABEL_WIDTH - HUD_MARGIN
+	money_button.offset_right = -HUD_MARGIN
+	money_button.offset_top = HUD_MARGIN + 24.0
+	hud.add_child(money_button)
+	money_button.setup(state.ledger, state.clock)
+
+	finance_panel = FinancePanel.new()
+	hud.add_child(finance_panel)
+	finance_panel.setup(state.ledger, state.clock)
+	money_button.pressed.connect(finance_panel.toggle)
+
+	notice_label = NoticeLabel.new()
+	hud.add_child(notice_label)
+	notice_label.setup()
+	state.build.funds_insufficient.connect(_on_funds_insufficient)
 
 	wall_mode_bar = WallModeBar.new()
 	hud.add_child(wall_mode_bar)
@@ -112,6 +135,10 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	state.tick(delta)
+
+
+func _on_funds_insufficient(required_balance: int, balance: int) -> void:
+	notice_label.show_notice(MoneyTexts.insufficient_text(required_balance, balance))
 
 
 func _on_agent_selected(agent_id: int) -> void:
@@ -132,12 +159,14 @@ func _refresh_hovered_room() -> void:
 
 
 ## Atajos: Espacio pausa/reanuda el reloj; 1, 2 y 3 eligen la velocidad; C cambia el modo de
-## visualización de las paredes.
+## visualización de las paredes; F abre y cierra las finanzas.
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if key == null or not key.pressed or key.echo:
 		return
 	match key.keycode:
+		KEY_F:
+			finance_panel.toggle()
 		KEY_C:
 			if not key.ctrl_pressed:
 				level_view.set_wall_mode(WallViewMode.next(level_view.get_wall_mode()))

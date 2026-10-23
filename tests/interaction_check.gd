@@ -13,6 +13,9 @@ func _initialize() -> void:
 	_main = load("res://view/main.tscn").instantiate()
 	root.add_child(_main)
 	await _frames(2)
+	# Construir cuesta dinero: las comprobaciones largas parten de mucho saldo. Las de economía
+	# (al final) lo ajustan a lo que necesiten.
+	_main.state.ledger.record(Ledger.Category.SALE, 10000000, "fondos de prueba")
 
 	await _check_hover()
 	await _check_camera()
@@ -22,6 +25,7 @@ func _initialize() -> void:
 	await _check_agents()
 	await _check_guests()
 	await _check_wall_modes()
+	await _check_economy()
 	await _check_clock()
 
 	# Capturas del resaltado: modo celda (args[0]) y modo arista (args[1]).
@@ -700,6 +704,97 @@ func _check_wall_modes() -> void:
 	state.build.clear_rect_floor(floor_rect, 0)
 	state.clock.set_speed(GameClock.Speed.X1)
 	view.set_wall_mode(WallViewMode.default_mode())
+	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
+	await _frames(3)
+
+
+func _check_economy() -> void:
+	print("== dinero")
+	var state: GameState = _main.state
+	var controller: BuildController = _main.build_controller
+	var toolbar: BuildToolbar = _main.toolbar
+	var camera: IsoCamera = _main.camera
+	var money: MoneyButton = _main.money_button
+	var finance: FinancePanel = _main.finance_panel
+	var notice: NoticeLabel = _main.notice_label
+	var preview: ShapePreview = _main.shape_preview
+
+	# Reloj en pausa (las piezas no envejecen mientras dura la comprobación) y un saldo conocido.
+	state.clock.set_speed(GameClock.Speed.PAUSED)
+	state.ledger.record(Ledger.Category.UPKEEP, -(state.ledger.balance - 300), "ajuste de la prueba")
+	camera.position = IsoProjection.grid_to_world(Vector2(22, 22))
+	await _frames(4)
+
+	# El saldo a la vista y el panel de finanzas (botón y tecla F).
+	_check(money.text.contains("Dinero 300 €"), "el saldo se ve en pantalla: '%s'" % money.text)
+	_check(not finance.is_open(), "el panel de finanzas empieza cerrado")
+	await _click_button(money)
+	_check(finance.is_open() and finance.get_plain_text().contains("Saldo: 300 €"), "pulsar el saldo abre las finanzas")
+	_save_args(19)
+	await _press_key(KEY_F)
+	_check(not finance.is_open(), "la tecla F lo cierra")
+	await _press_key(KEY_F)
+	_check(finance.is_open(), "y la vuelve a abrir")
+	await _press_key(KEY_F)
+
+	# Construir con fondos: el saldo baja y el botón lo refleja.
+	await _click_button(toolbar.get_tool_button(BuildController.Tool.FLOOR))
+	await _click_grid(_center(Vector2i(20, 20)), MOUSE_BUTTON_LEFT)
+	_check(state.ledger.balance == 290 and state.grid.get_floor_type(Vector2i(20, 20), 0) == CellTypes.FloorType.BASIC, "un suelo cuesta 10")
+	await _frames(2)
+	_check(money.text.contains("Dinero 290 €"), "el saldo en pantalla baja: '%s'" % money.text)
+
+	# La vista previa de una habitación enseña lo que cuesta, y se cobra al soltar.
+	controller.set_tool(BuildController.Tool.ROOM)
+	var room_cells: Array[Vector2] = [_center(Vector2i(22, 22)), _center(Vector2i(23, 23))]
+	await _begin_drag_grid(room_cells, MOUSE_BUTTON_LEFT)
+	_check(preview.get_cost_text() == "-104 €" and preview.is_affordable(), "la vista previa muestra el coste: '%s'" % preview.get_cost_text())
+	_save_args(17)
+	await _end_drag_grid(room_cells[1], MOUSE_BUTTON_LEFT)
+	_check(state.ledger.balance == 290 - 104, "se cobra al soltar")
+	_check(state.grid.get_floor_type(Vector2i(22, 22), 0) == CellTypes.FloorType.BASIC, "y la habitación se construye")
+
+	# Sin dinero suficiente: la forma sale en rojo, no se construye nada y avisa.
+	var big_cells: Array[Vector2] = [_center(Vector2i(18, 24)), _center(Vector2i(21, 27))] # 4x4: 288
+	await _begin_drag_grid(big_cells, MOUSE_BUTTON_LEFT)
+	_check(not preview.is_affordable() and preview.get_cost_text().contains("sin fondos"), "sin fondos, la vista previa lo dice: '%s'" % preview.get_cost_text())
+	_save_args(18)
+	var balance_before: int = state.ledger.balance
+	await _end_drag_grid(big_cells[1], MOUSE_BUTTON_LEFT)
+	_check(state.ledger.balance == balance_before, "no se cobra nada")
+	_check(state.grid.get_floor_type(Vector2i(19, 25), 0) == CellTypes.FloorType.NONE, "y no se construye ni una celda")
+	_check(notice.visible and notice.text.contains("Dinero insuficiente"), "aparece el aviso: '%s'" % notice.text)
+
+	# El aviso desaparece solo.
+	var gone: bool = await _wait_until(func() -> bool: return not notice.visible, 400)
+	_check(gone, "el aviso se desvanece pasados unos segundos")
+
+	# Un pincel sin dinero también se rechaza con aviso.
+	state.ledger.record(Ledger.Category.UPKEEP, -(state.ledger.balance - 5), "ajuste de la prueba")
+	await _click_button(toolbar.get_tool_button(BuildController.Tool.FLOOR))
+	await _click_grid(_center(Vector2i(20, 21)), MOUSE_BUTTON_LEFT)
+	_check(state.grid.get_floor_type(Vector2i(20, 21), 0) == CellTypes.FloorType.NONE and state.ledger.balance == 5, "con 5 de saldo no se compra un suelo de 10")
+	_check(notice.visible, "y también avisa")
+	_check(money.get_theme_color("font_color") == Color(1, 1, 1), "con saldo positivo el texto es normal")
+	state.ledger.record(Ledger.Category.UPKEEP, -50, "se deja en negativo")
+	await _frames(2)
+	_check(money.get_theme_color("font_color").r > 0.9 and money.get_theme_color("font_color").g < 0.7, "en negativo, rojo")
+
+	# Demoler devuelve el dinero: las piezas son nuevas porque el reloj está parado.
+	state.ledger.record(Ledger.Category.SALE, 300 - state.ledger.balance, "ajuste de la prueba")
+	controller.set_tool(BuildController.Tool.ROOM)
+	var room_before: int = state.ledger.balance
+	await _begin_drag_grid(room_cells, MOUSE_BUTTON_RIGHT)
+	_check(preview.get_cost_text() == "+104 €", "demoler muestra lo que devuelve: '%s'" % preview.get_cost_text())
+	await _end_drag_grid(room_cells[1], MOUSE_BUTTON_RIGHT)
+	_check(state.ledger.balance == room_before + 104, "se recupera todo lo de las piezas nuevas")
+	_check(state.grid.get_floor_type(Vector2i(22, 22), 0) == CellTypes.FloorType.NONE, "y la habitación desaparece")
+
+	# Limpieza.
+	controller.set_tool(BuildController.Tool.NONE)
+	state.build.remove_floor(Vector2i(20, 20), 0)
+	state.ledger.record(Ledger.Category.SALE, 10000000, "fondos de prueba")
+	state.clock.set_speed(GameClock.Speed.X1)
 	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
 	await _frames(3)
 

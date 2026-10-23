@@ -220,23 +220,26 @@ func _apply_brush() -> void:
 
 func _apply_shape() -> void:
 	var rect: Rect2i = GridShapes.rect_between(_shape_start, _shape_end)
-	var removing: bool = _stroke_button == MOUSE_BUTTON_RIGHT
+	_state.build.execute(_shape_plan(rect, _stroke_button == MOUSE_BUTTON_RIGHT))
+
+
+## Las operaciones que haría la herramienta actual sobre el rectángulo. La vista previa y la
+## ejecución usan este mismo plan, así que el coste mostrado es el que se cobra.
+func _shape_plan(rect: Rect2i, removing: bool) -> Array[BuildOp]:
 	match current_tool:
 		Tool.FLOOR:
 			if removing:
-				_state.build.clear_rect_floor(rect, _level)
-			else:
-				_state.build.fill_rect_floor(rect, _level)
+				return _state.build.plan_clear_rect_floor(rect, _level)
+			return _state.build.plan_fill_rect_floor(rect, _level)
 		Tool.WALL:
 			if removing:
-				_state.build.clear_outline_walls(rect, _level)
-			else:
-				_state.build.outline_rect_walls(rect, _level)
+				return _state.build.plan_clear_outline_walls(rect, _level)
+			return _state.build.plan_outline_rect_walls(rect, _level)
 		Tool.ROOM:
 			if removing:
-				_state.build.demolish_room(rect, _level)
-			else:
-				_state.build.build_room(rect, _level)
+				return _state.build.plan_demolish_room(rect, _level)
+			return _state.build.plan_build_room(rect, _level)
+	return []
 
 
 # --- Vista previa y cursor ---------------------------------------------------------------
@@ -249,7 +252,9 @@ func _update_preview() -> void:
 		Tool.ROOM:
 			kind = ShapePreview.Kind.ROOM
 	var rect: Rect2i = GridShapes.rect_between(_shape_start, _shape_end)
-	_preview.show_shape(rect, kind, _stroke_button == MOUSE_BUTTON_RIGHT)
+	var removing: bool = _stroke_button == MOUSE_BUTTON_RIGHT
+	var quote: BuildQuote = _state.build.quote(_shape_plan(rect, removing))
+	_preview.show_shape(rect, kind, removing, MoneyTexts.quote_text(quote), quote.affordable)
 
 
 ## La arista se resalta con Puerta y con Pared en modo pincel; cuando se va a dibujar un

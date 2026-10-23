@@ -15,6 +15,9 @@ const WALL_SOURCE_ID: int = 1
 const GROUND_BASIC_COORDS: Vector2i = Vector2i(0, 0)
 
 const WALL_HEIGHT: int = 48
+## Desplazamiento del punto de ordenación por Y de los tiles de pared (hacia el punto medio de
+## sus aristas, que está 8 px por encima del centro de la celda).
+const WALL_Y_SORT_ORIGIN: int = -8
 const WALL_TEXTURE_SIZE: Vector2i = Vector2i(64, 32 + 2 * WALL_HEIGHT)
 # Puerta: el hueco ocupa de DOOR_START a DOOR_END del largo de la arista y DOOR_HEIGHT de alto.
 const DOOR_START: float = 0.22
@@ -82,7 +85,12 @@ static func _build_wall_source() -> TileSetAtlasSource:
 			_draw_edge_panel(image, index * size.x, Edge.Axis.Y, type_y as CellTypes.EdgeType)
 	source = _make_source(image, size)
 	for index in range(1, combos):
-		source.create_tile(Vector2i(index, 0))
+		var coords := Vector2i(index, 0)
+		source.create_tile(coords)
+		# Las aristas norte y oeste de una celda están 8 px por encima de su centro: ordenar
+		# las paredes por ese punto las coloca bien frente a los agentes (cuyo punto es el de
+		# sus pies) tanto si están dentro de la celda como al otro lado de la pared.
+		source.get_tile_data(coords, 0).y_sort_origin = WALL_Y_SORT_ORIGIN
 	return source
 
 

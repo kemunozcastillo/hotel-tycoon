@@ -3,7 +3,7 @@ extends PanelContainer
 ## Barra de herramientas de construcción. Solo elige la herramienta del BuildController; no
 ## conoce la simulación. Los botones de tipo de habitación se generan a partir del catálogo.
 
-const HINT_TEXT: String = "Clic izq.: construir   Clic der.: quitar   Mayús+arrastrar: rectángulo   Esc: salir"
+const HINT_TEXT: String = "Izq.: construir   Der.: quitar   Mayús+arrastrar: rectángulo   Esc: salir"
 
 var _controller: BuildController
 var _group: ButtonGroup
@@ -28,6 +28,10 @@ func setup(controller: BuildController, catalog: RoomTypeCatalog) -> void:
 		box.add_child(VSeparator.new())
 		for type: RoomType in catalog.get_types():
 			_add_type_button(box, _group, type)
+
+	# Herramienta de desarrollo: crear, seleccionar y mandar agentes.
+	box.add_child(VSeparator.new())
+	_add_tool_button(box, _group, "Agente", BuildController.Tool.AGENT)
 
 	var hint := Label.new()
 	hint.text = HINT_TEXT

@@ -12,6 +12,8 @@ var level_view: LevelView
 var camera: IsoCamera
 var room_overlay: RoomOverlay
 var cursor: CellCursor
+var agents_layer: AgentsLayer
+var agent_info_panel: AgentInfoPanel
 var shape_preview: ShapePreview
 var build_controller: BuildController
 var hud: CanvasLayer
@@ -36,6 +38,10 @@ func _ready() -> void:
 	add_child(cursor)
 	cursor.setup(state.grid, LEVEL)
 
+	agents_layer = AgentsLayer.new()
+	add_child(agents_layer)
+	agents_layer.setup(state.agents, level_view.get_entities_root())
+
 	shape_preview = ShapePreview.new()
 	add_child(shape_preview)
 
@@ -59,6 +65,11 @@ func _ready() -> void:
 	hud.add_child(room_info_panel)
 	room_info_panel.setup(state.rooms)
 
+	agent_info_panel = AgentInfoPanel.new()
+	hud.add_child(agent_info_panel)
+	agent_info_panel.setup(state.agents)
+	build_controller.agent_selected.connect(_on_agent_selected)
+
 	# La habitación bajo el cursor se resalta y se describe en el panel.
 	cursor.hover_changed.connect(_refresh_hovered_room)
 	state.rooms.room_created.connect(_on_room_event)
@@ -78,6 +89,11 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	state.tick(delta)
+
+
+func _on_agent_selected(agent_id: int) -> void:
+	agents_layer.set_selected(agent_id)
+	agent_info_panel.show_agent(agent_id)
 
 
 func _on_room_event(_room: Room) -> void:

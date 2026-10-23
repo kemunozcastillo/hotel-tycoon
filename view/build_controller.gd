@@ -8,17 +8,23 @@ extends Node
 ## perímetro de paredes). La herramienta Habitación siempre usa un rectángulo y crea suelo y
 ## paredes a la vez. La herramienta Puerta coloca o quita puertas sobre las aristas. La
 ## herramienta Tipo asigna a la habitación pulsada el tipo elegido (clic derecho lo quita).
+## La herramienta Agente (de desarrollo) selecciona un agente con clic izquierdo, o crea uno si
+## la celda está libre; clic derecho lo manda a la celda pulsada y Supr lo elimina.
 ## Esc cancela el arrastre en curso o, si no hay, deselecciona la herramienta.
 
-enum Tool { NONE, FLOOR, WALL, DOOR, ROOM, TYPE }
+enum Tool { NONE, FLOOR, WALL, DOOR, ROOM, TYPE, AGENT }
 
 signal tool_changed(new_tool: Tool)
 ## Se eligió otro tipo de habitación para la herramienta Tipo.
 signal room_type_selected(type_id: StringName)
+## Cambió el agente seleccionado (0 = ninguno).
+signal agent_selected(agent_id: int)
 
 var current_tool: Tool = Tool.NONE
 ## Tipo que asigna la herramienta Tipo.
 var selected_type_id: StringName = &""
+## Agente seleccionado con la herramienta Agente (0 = ninguno).
+var selected_agent_id: int = 0
 
 var _state: GameState
 var _cursor: CellCursor
@@ -30,6 +36,9 @@ var _stroke_button: int = 0
 var _shape_mode: bool = false
 var _shape_start: Vector2i = Vector2i.ZERO
 var _shape_end: Vector2i = Vector2i.ZERO
+# true solo en el instante de pulsar el botón: las herramientas de un solo clic (Agente) no se
+# repiten al arrastrar por otras celdas.
+var _stroke_fresh: bool = false
 
 
 func setup(state: GameState, cursor: CellCursor, preview: ShapePreview, level: int) -> void:
@@ -38,6 +47,7 @@ func setup(state: GameState, cursor: CellCursor, preview: ShapePreview, level: i
 	_preview = preview
 	_level = level
 	cursor.hover_changed.connect(_on_hover_changed)
+	state.agents.agent_removed.connect(_on_agent_removed)
 
 
 func set_tool(new_tool: Tool) -> void:
@@ -45,7 +55,22 @@ func set_tool(new_tool: Tool) -> void:
 		return
 	current_tool = new_tool
 	_cancel_stroke()
+	if new_tool != Tool.AGENT:
+		select_agent(0)
 	tool_changed.emit(new_tool)
+
+
+## Selecciona un agente (0 = ninguno).
+func select_agent(agent_id: int) -> void:
+	if agent_id == selected_agent_id:
+		return
+	selected_agent_id = agent_id
+	agent_selected.emit(agent_id)
+
+
+func _on_agent_removed(agent: Agent) -> void:
+	if agent.id == selected_agent_id:
+		select_agent(0)
 
 
 ## Activa la herramienta Tipo con el tipo de habitación indicado.
@@ -79,6 +104,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			_cancel_stroke()
 		else:
 			set_tool(Tool.NONE)
+	elif event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).keycode == KEY_DELETE:
+		if current_tool == Tool.AGENT and selected_agent_id != 0:
+			_state.agents.remove(selected_agent_id)
 
 
 func _process(_delta: float) -> void:
@@ -115,7 +143,9 @@ func _begin_stroke(button_index: int, shift_held: bool) -> void:
 	else:
 		_stroke_button = button_index
 		_shape_mode = false
+		_stroke_fresh = true
 		_apply_brush()
+		_stroke_fresh = false
 
 
 func _end_stroke() -> void:
@@ -164,6 +194,20 @@ func _apply_brush() -> void:
 			if room == null:
 				return
 			_state.rooms.set_room_type(room.id, &"" if removing else selected_type_id)
+		Tool.AGENT:
+			if not _stroke_fresh or not _cursor.is_hovering:
+				return
+			if removing:
+				# Clic derecho: enviar al agente seleccionado a esta celda.
+				if selected_agent_id != 0:
+					_state.agents.set_destination(selected_agent_id, _cursor.hover_cell)
+			else:
+				# Clic izquierdo: seleccionar al agente de la celda o, si no hay, crear uno.
+				var agent: Agent = _state.agents.get_agent_at(_cursor.hover_cell, _level)
+				if agent == null:
+					agent = _state.agents.spawn(_cursor.hover_cell, _level)
+				if agent != null:
+					select_agent(agent.id)
 
 
 func _apply_shape() -> void:

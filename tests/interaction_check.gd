@@ -19,6 +19,7 @@ func _initialize() -> void:
 	await _check_build()
 	await _check_shapes()
 	await _check_types()
+	await _check_agents()
 	await _check_clock()
 
 	# Capturas del resaltado: modo celda (args[0]) y modo arista (args[1]).
@@ -385,6 +386,165 @@ func _check_types() -> void:
 	controller.set_tool(BuildController.Tool.NONE)
 	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
 	await _frames(3)
+
+
+func _check_agents() -> void:
+	print("== agentes")
+	var state: GameState = _main.state
+	var controller: BuildController = _main.build_controller
+	var toolbar: BuildToolbar = _main.toolbar
+	var panel: AgentInfoPanel = _main.agent_info_panel
+	var layer: AgentsLayer = _main.agents_layer
+	var camera: IsoCamera = _main.camera
+	var floor_rect := Rect2i(Vector2i(16, 16), Vector2i(15, 12))
+	state.build.fill_rect_floor(floor_rect, 0)
+	state.build.build_room(Rect2i(Vector2i(21, 19), Vector2i(4, 3)), 0)
+	state.build.place_door(Edge.from_side(Vector2i(22, 21), Edge.Side.SOUTH), 0)
+	camera.position = IsoProjection.grid_to_world(Vector2(23, 21))
+	await _frames(3)
+
+	# Herramienta Agente: el botón de la barra, crear, seleccionar y no repetir al arrastrar.
+	var agent_button: Button = toolbar.get_tool_button(BuildController.Tool.AGENT)
+	await _click_button(agent_button)
+	_check(controller.current_tool == BuildController.Tool.AGENT and agent_button.button_pressed, "el botón Agente activa la herramienta")
+	await _click_grid(_center(Vector2i(18, 17)), MOUSE_BUTTON_LEFT)
+	_check(state.agents.get_agents().size() == 1, "clic sobre suelo libre crea un agente")
+	var agent: Agent = state.agents.get_agents()[0]
+	agent.wanders = false
+	_check(controller.selected_agent_id == agent.id and layer.get_view_count() == 1, "queda seleccionado y con su vista")
+	_check(panel.visible and panel.get_plain_text().contains("Agente %d" % agent.id) and panel.get_plain_text().contains("Quieto"), "el panel muestra su estado")
+	await _click_grid(_center(Vector2i(18, 17)), MOUSE_BUTTON_LEFT)
+	_check(state.agents.get_agents().size() == 1, "clic sobre un agente lo selecciona, no crea otro")
+	await _drag_grid([_center(Vector2i(18, 17)), _center(Vector2i(19, 17)), _center(Vector2i(20, 17))], MOUSE_BUTTON_LEFT)
+	_check(state.agents.get_agents().size() == 1, "arrastrar con la herramienta Agente no crea agentes")
+	await _click_grid(_center(Vector2i(28, 17)), MOUSE_BUTTON_LEFT)
+	_check(state.agents.get_agents().size() == 2, "otro clic en suelo libre crea un segundo agente")
+	var second: Agent = state.agents.get_agents()[1]
+	second.wanders = false
+	_check(controller.selected_agent_id == second.id, "el nuevo queda seleccionado")
+	await _click_grid(_center(Vector2i(18, 17)), MOUSE_BUTTON_LEFT)
+	_check(controller.selected_agent_id == agent.id, "volver a pulsar al primero lo selecciona")
+	await _click_grid(_center(Vector2i(2, 2)), MOUSE_BUTTON_LEFT)
+	_check(state.agents.get_agents().size() == 2, "clic sin suelo no crea agentes")
+
+	# Enviarlo con clic derecho; el reloj a x3 para que no tarde. Se vigila cada fotograma que
+	# solo pise suelo y no cruce paredes.
+	state.clock.set_speed(GameClock.Speed.X3)
+	await _click_grid(_center(Vector2i(28, 25)), MOUSE_BUTTON_RIGHT)
+	_check(agent.state == Agent.State.WALKING and agent.destination == Vector2i(28, 25), "clic derecho lo manda a la celda")
+	_check(panel.get_plain_text().contains("Camina hacia (28, 25)"), "el panel indica el destino")
+	var start_position: Vector2 = agent.position
+	await _frames(20)
+	_check(agent.position != start_position, "se mueve")
+	_save_args(7)
+	await _walk_until_idle(agent, 900)
+	_check(agent.state == Agent.State.IDLE and agent.get_cell() == Vector2i(28, 25), "llega a su destino")
+	_check(panel.get_plain_text().contains("Quieto"), "el panel vuelve a Quieto")
+
+	# Entrar en la habitación solo por su puerta.
+	await _click_grid(_center(Vector2i(22, 20)), MOUSE_BUTTON_RIGHT)
+	_check(agent.state == Agent.State.WALKING, "se le manda al interior de la habitación")
+	await _walk_until_idle(agent, 900)
+	_check(agent.get_cell() == Vector2i(22, 20), "llega dentro de la habitación sin atravesar paredes")
+
+	# Una pared nueva en su camino: rodea o, si cierra el paso, queda bloqueado.
+	state.build.place_door(Edge.from_side(Vector2i(22, 21), Edge.Side.SOUTH), 0) # sigue abierta
+	await _click_grid(_center(Vector2i(16, 16)), MOUSE_BUTTON_RIGHT)
+	await _frames(10)
+	state.build.place_wall(Edge.from_side(Vector2i(22, 21), Edge.Side.SOUTH), 0) # se cierra la puerta
+	await _frames(5)
+	_check(agent.state == Agent.State.BLOCKED, "con la puerta cerrada queda bloqueado")
+	_check(panel.get_plain_text().contains("Bloqueado"), "y el panel lo dice")
+	_save_args(8)
+	state.build.place_door(Edge.from_side(Vector2i(22, 21), Edge.Side.SOUTH), 0)
+	await _frames(5)
+	_check(agent.state == Agent.State.WALKING, "al reabrir la puerta reanuda solo")
+	await _walk_until_idle(agent, 900)
+	_check(agent.get_cell() == Vector2i(16, 16), "y llega a su destino")
+
+	# Eliminar con Supr.
+	var removed_id: int = agent.id
+	await _press_key(KEY_DELETE)
+	_check(state.agents.get_agent(removed_id) == null and state.agents.get_agents().size() == 1, "Supr elimina al seleccionado")
+	_check(layer.get_view_count() == 1 and not panel.visible, "su vista y el panel desaparecen")
+
+	# Ordenación con las paredes: un agente justo detrás de una pared queda tapado y uno justo
+	# delante se ve. Se comprueba mirando el color real de los píxeles.
+	state.clock.set_speed(GameClock.Speed.PAUSED)
+	state.agents.remove(second.id)
+	for x in range(26, 30):
+		state.build.place_wall(Edge.new(Vector2i(x, 18), Edge.Axis.X), 0)
+	var behind: Agent = state.agents.spawn(Vector2i(26, 17), 0)
+	var front: Agent = state.agents.spawn(Vector2i(29, 18), 0)
+	behind.wanders = false
+	front.wanders = false
+	behind.position = Vector2(26.5, 17.8) # 0,2 celdas al norte de la pared: detrás
+	front.position = Vector2(29.5, 18.2) # 0,2 celdas al sur: delante
+	camera.position = IsoProjection.grid_to_world(Vector2(28, 18))
+	await _frames(4)
+	var screenshot: Image = root.get_texture().get_image()
+	var behind_pixel: Color = _pixel_at_body(screenshot, behind)
+	var front_pixel: Color = _pixel_at_body(screenshot, front)
+	_check(_close(front_pixel, AgentView.body_color_of(front)), "el agente delante de la pared se ve (%s)" % str(front_pixel))
+	_check(_close(behind_pixel, TilesetFactory.WALL_FACE_X), "el agente detrás de la pared queda tapado por ella (%s)" % str(behind_pixel))
+	_save_args(9)
+
+	# Y al revés, con la pared del lado oeste (eje Y): detrás es "oeste", delante es "este".
+	for x in range(26, 30):
+		state.build.remove_wall(Edge.new(Vector2i(x, 18), Edge.Axis.X), 0)
+	for y in range(18, 22):
+		state.build.place_wall(Edge.new(Vector2i(27, y), Edge.Axis.Y), 0)
+	behind.position = Vector2(26.8, 19.5) # 0,2 celdas al oeste de la pared: detrás
+	front.position = Vector2(27.2, 21.5) # 0,2 celdas al este: delante
+	camera.position = IsoProjection.grid_to_world(Vector2(27, 20))
+	await _frames(4)
+	screenshot = root.get_texture().get_image()
+	_check(_close(_pixel_at_body(screenshot, front), AgentView.body_color_of(front)), "pared del eje Y: el agente delante se ve")
+	_check(_close(_pixel_at_body(screenshot, behind), TilesetFactory.WALL_FACE_Y), "pared del eje Y: el agente detrás queda tapado (%s)" % str(_pixel_at_body(screenshot, behind)))
+	_save_args(10)
+
+	# Limpieza.
+	for placed in state.agents.get_agents():
+		state.agents.remove(placed.id)
+	for y in range(18, 22):
+		state.build.remove_wall(Edge.new(Vector2i(27, y), Edge.Axis.Y), 0)
+	controller.set_tool(BuildController.Tool.NONE)
+	state.build.clear_rect_floor(floor_rect, 0)
+	state.build.demolish_room(Rect2i(Vector2i(21, 19), Vector2i(4, 3)), 0)
+	state.clock.set_speed(GameClock.Speed.X1)
+	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
+	await _frames(3)
+
+
+## Avanza fotogramas hasta que el agente deja de caminar, comprobando en cada uno que está sobre
+## suelo y que no ha cruzado ninguna pared.
+func _walk_until_idle(agent: Agent, max_frames: int) -> void:
+	var state: GameState = _main.state
+	var previous: Vector2i = agent.get_cell()
+	var frames: int = 0
+	while agent.state == Agent.State.WALKING and frames < max_frames:
+		await _frames(1)
+		frames += 1
+		var cell: Vector2i = agent.get_cell()
+		if not state.grid.is_walkable(cell, 0):
+			_check(false, "el agente pisó %s sin suelo" % str(cell))
+			return
+		if cell != previous:
+			if not Pathfinder.is_step_legal(state.grid, 0, previous, cell):
+				_check(false, "el agente cruzó una pared: %s -> %s" % [str(previous), str(cell)])
+				return
+			previous = cell
+
+
+## Color del píxel en el centro del cuerpo del agente.
+func _pixel_at_body(screenshot: Image, agent: Agent) -> Color:
+	var feet: Vector2 = _screen_of_grid(agent.position)
+	var body_center: Vector2 = feet + Vector2(0, -9.5)
+	return screenshot.get_pixelv(Vector2i(body_center))
+
+
+func _close(a: Color, b: Color) -> bool:
+	return absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b) < 0.12
 
 
 func _click_button(button: Button) -> void:

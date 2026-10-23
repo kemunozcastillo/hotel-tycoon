@@ -3,13 +3,15 @@ extends Node2D
 ## Representación visual de un nivel de GridMap2D. Solo lee el mapa y reacciona a sus
 ## señales; nunca modifica la simulación.
 ##
-## Capas (de atrás hacia delante): rejilla, suelo y paredes. Las paredes comparten una sola
-## capa con ordenación por Y para que las de delante tapen a las de detrás.
+## Capas (de atrás hacia delante): rejilla, suelo y un contenedor ordenado por Y con las paredes
+## y las entidades (agentes). Las paredes comparten una sola capa con ordenación por Y, y las
+## entidades se ordenan con ellas, para que lo que está delante tape a lo que está detrás.
 
 var _grid: GridMap2D
 var _level: int = 0
 var _lines: GridLines
 var _ground: TileMapLayer
+var _entities: Node2D
 var _walls: TileMapLayer
 
 
@@ -26,10 +28,14 @@ func setup(grid: GridMap2D, level: int) -> void:
 	_ground.tile_set = tile_set
 	add_child(_ground)
 
+	_entities = Node2D.new()
+	_entities.y_sort_enabled = true
+	add_child(_entities)
+
 	_walls = TileMapLayer.new()
 	_walls.tile_set = tile_set
 	_walls.y_sort_enabled = true
-	add_child(_walls)
+	_entities.add_child(_walls)
 
 	grid.cell_changed.connect(_on_cell_changed)
 	grid.edge_changed.connect(_on_edge_changed)
@@ -39,7 +45,13 @@ func setup(grid: GridMap2D, level: int) -> void:
 ## Añade un nodo que se dibuja sobre el suelo pero por debajo de las paredes.
 func add_ground_overlay(node: Node2D) -> void:
 	add_child(node)
-	move_child(node, _walls.get_index())
+	move_child(node, _entities.get_index())
+
+
+## Nodo donde van las entidades (agentes): se ordenan por la Y de su posición junto con las
+## paredes. Su posición debe ser el punto de los pies sobre el suelo.
+func get_entities_root() -> Node2D:
+	return _entities
 
 
 func _redraw_all() -> void:

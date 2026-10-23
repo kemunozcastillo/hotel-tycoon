@@ -8,6 +8,7 @@ const CAMERA_MARGIN: float = 200.0 # cuánto puede salirse la cámara del mapa
 var state: GameState
 var level_view: LevelView
 var camera: IsoCamera
+var cursor: CellCursor
 
 
 func _ready() -> void:
@@ -17,6 +18,10 @@ func _ready() -> void:
 	level_view = LevelView.new()
 	add_child(level_view)
 	level_view.setup(state.grid, LEVEL)
+
+	cursor = CellCursor.new()
+	add_child(cursor)
+	cursor.setup(state.grid, LEVEL)
 
 	camera = IsoCamera.new()
 	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)

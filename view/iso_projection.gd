@@ -36,6 +36,14 @@ static func world_to_cell(world_pos: Vector2) -> Vector2i:
 	return Vector2i(floori(grid_pos.x), floori(grid_pos.y))
 
 
+## Rectángulo del mundo que contiene todo el mapa (para limitar la cámara).
+static func map_world_bounds(map_size: Vector2i) -> Rect2:
+	var left: float = grid_to_world(Vector2(0, map_size.y)).x
+	var right: float = grid_to_world(Vector2(map_size.x, 0)).x
+	var bottom: float = grid_to_world(Vector2(map_size)).y
+	return Rect2(left, 0.0, right - left, bottom)
+
+
 ## Los dos extremos de una arista en coordenadas del mundo.
 static func edge_endpoints(edge: Edge) -> PackedVector2Array:
 	var start := Vector2(edge.cell)

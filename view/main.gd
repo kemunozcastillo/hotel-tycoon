@@ -3,10 +3,11 @@ extends Node2D
 
 const LEVEL: int = 0
 const BACKGROUND_COLOR: Color = Color(0.09, 0.10, 0.12)
+const CAMERA_MARGIN: float = 200.0 # cuánto puede salirse la cámara del mapa
 
 var state: GameState
 var level_view: LevelView
-var camera: Camera2D
+var camera: IsoCamera
 
 
 func _ready() -> void:
@@ -17,6 +18,7 @@ func _ready() -> void:
 	add_child(level_view)
 	level_view.setup(state.grid, LEVEL)
 
-	camera = Camera2D.new()
+	camera = IsoCamera.new()
 	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
 	add_child(camera)
+	camera.set_bounds(IsoProjection.map_world_bounds(state.grid.size).grow(CAMERA_MARGIN))

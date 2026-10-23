@@ -5,6 +5,7 @@ const LEVEL: int = 0
 const BACKGROUND_COLOR: Color = Color(0.09, 0.10, 0.12)
 const CAMERA_MARGIN: float = 200.0 # cuánto puede salirse la cámara del mapa
 const HUD_MARGIN: float = 8.0
+const CLOCK_LABEL_WIDTH: float = 240.0
 
 var state: GameState
 var level_view: LevelView
@@ -13,6 +14,7 @@ var cursor: CellCursor
 var build_controller: BuildController
 var hud: CanvasLayer
 var toolbar: BuildToolbar
+var clock_label: ClockLabel
 
 
 func _ready() -> void:
@@ -42,3 +44,32 @@ func _ready() -> void:
 	toolbar.position = Vector2(HUD_MARGIN, HUD_MARGIN)
 	hud.add_child(toolbar)
 	toolbar.setup(build_controller)
+
+	clock_label = ClockLabel.new()
+	clock_label.anchor_left = 1.0
+	clock_label.anchor_right = 1.0
+	clock_label.offset_left = -CLOCK_LABEL_WIDTH - HUD_MARGIN
+	clock_label.offset_right = -HUD_MARGIN
+	clock_label.offset_top = HUD_MARGIN
+	hud.add_child(clock_label)
+	clock_label.setup(state.clock)
+
+
+func _process(delta: float) -> void:
+	state.tick(delta)
+
+
+## Atajos del reloj: Espacio pausa/reanuda; 1, 2 y 3 eligen la velocidad.
+func _unhandled_key_input(event: InputEvent) -> void:
+	var key := event as InputEventKey
+	if key == null or not key.pressed or key.echo:
+		return
+	match key.keycode:
+		KEY_SPACE:
+			state.clock.toggle_pause()
+		KEY_1:
+			state.clock.set_speed(GameClock.Speed.X1)
+		KEY_2:
+			state.clock.set_speed(GameClock.Speed.X2)
+		KEY_3:
+			state.clock.set_speed(GameClock.Speed.X3)

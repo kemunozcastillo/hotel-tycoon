@@ -17,6 +17,7 @@ func _initialize() -> void:
 	await _check_hover()
 	await _check_camera()
 	await _check_build()
+	await _check_clock()
 
 	# Capturas del resaltado: modo celda (args[0]) y modo arista (args[1]).
 	_main.cursor.edge_mode = false
@@ -182,6 +183,46 @@ func _check_build() -> void:
 	await _move_mouse_to_grid(Vector2(18.5, 12.03))
 	_save_args(0)
 	controller.set_tool(BuildController.Tool.NONE)
+
+
+func _check_clock() -> void:
+	print("== reloj")
+	var clock: GameClock = _main.state.clock
+	var label: ClockLabel = _main.clock_label
+	await _frames(1)
+	var started: float = clock.total_minutes
+	await _frames(20)
+	_check(clock.total_minutes > started, "el reloj avanza con el tiempo real")
+	_check(label.text.contains("Día 1") and label.text.contains("[x1]"), "la etiqueta muestra día y velocidad: '%s'" % label.text)
+
+	await _press_key(KEY_SPACE)
+	_check(clock.is_paused() and label.text.contains("[Pausa]"), "Espacio pausa: '%s'" % label.text)
+	var paused_at: float = clock.total_minutes
+	await _frames(20)
+	_check(clock.total_minutes == paused_at, "en pausa el tiempo no avanza")
+
+	await _press_key(KEY_3)
+	_check(clock.speed == GameClock.Speed.X3 and label.text.contains("[x3]"), "la tecla 3 elige x3")
+	await _press_key(KEY_2)
+	_check(clock.speed == GameClock.Speed.X2, "la tecla 2 elige x2")
+	await _press_key(KEY_1)
+	_check(clock.speed == GameClock.Speed.X1, "la tecla 1 elige x1")
+	await _press_key(KEY_SPACE)
+	await _press_key(KEY_SPACE)
+	_check(clock.speed == GameClock.Speed.X1, "pausar y reanudar vuelve a la velocidad anterior")
+
+
+func _press_key(keycode: Key) -> void:
+	var event := InputEventKey.new()
+	event.keycode = keycode
+	event.pressed = true
+	Input.parse_input_event(event)
+	await _frames(2)
+	event = InputEventKey.new()
+	event.keycode = keycode
+	event.pressed = false
+	Input.parse_input_event(event)
+	await _frames(1)
 
 
 # --- Utilidades -------------------------------------------------------------------------

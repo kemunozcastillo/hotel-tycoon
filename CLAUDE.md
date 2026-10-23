@@ -39,12 +39,15 @@ Referencias de género: Project Hospital y Prison Architect.
 ## Estructura de carpetas
 
 ```
-sim/     lógica pura (cuadrícula, aristas, comandos de construcción, reloj, estado)
-view/    TileMapLayer, cámara, cursor, controlador de construcción, escena principal
-ui/      barra de construcción, etiqueta del reloj
+sim/     lógica pura: GridMap2D (niveles, suelo, paredes por arista), Edge, LevelLayer,
+         BuildCommands, GameClock, GameState (raíz de la simulación)
+view/    main.tscn/main.gd (escena principal), IsoProjection (única que conoce el rombo 64x32),
+         TilesetFactory (arte provisional por código), LevelView (TileMapLayer), GridLines,
+         IsoCamera, CellCursor, BuildController
+ui/      BuildToolbar (herramientas), ClockLabel (día, hora y velocidad)
 data/    datos del juego (vacío por ahora)
 assets/  arte y audio (vacío; el arte provisional se genera por código)
-tests/   pruebas headless de sim/ y herramientas de verificación
+tests/   suites headless de sim/ y view/ más herramientas de verificación con ventana
 ```
 
 ## Cómo ejecutar
@@ -61,11 +64,42 @@ GODOT="C:/Proyectos/Godot_v4.7.2-stable_win64.exe/Godot_v4.7.2-stable_win64_cons
 # Comprobar errores de parseo
 "$GODOT" --headless --path . --quit
 
-# Pruebas de sim/ (sin ventana). Si se añaden clases con class_name, primero
+# Pruebas headless (sin ventana). Si se añaden clases con class_name, primero
 # hay que regenerar la caché de clases globales:
 "$GODOT" --headless --path . --import
-"$GODOT" --headless --path . --script res://tests/run_tests.gd
+timeout 60 "$GODOT" --headless --path . --script res://tests/run_tests.gd
 ```
+
+Usar siempre `timeout`: si un script tiene un error de parseo, Godot no termina solo.
+Código de salida 1 si algún test falla. Para añadir una suite: crear `tests/test_xxx.gd`
+(`extends TestCase`, métodos `test_*`) y registrarla en `SUITES` de `tests/run_tests.gd`.
+
+### Verificación con ventana (necesita GPU, no es headless)
+
+- `tests/interaction_check.gd`: inyecta ratón y teclado en la escena real y comprueba hover,
+  cámara, construcción (incluido un baño de 2x2 con 8 clics) y reloj. Admite hasta tres rutas
+  de PNG tras `--`: resultado de construir, resaltado de celda y resaltado de arista.
+- `tests/capture_view.gd`: captura una escena de demostración con habitaciones.
+
+```bash
+"$GODOT" --path . --script res://tests/interaction_check.gd -- build.png cell.png edge.png
+"$GODOT" --path . --script res://tests/capture_view.gd -- demo.png
+```
+
+Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCursor` guarda la
+última posición recibida por `_input` en vez de consultar el ratón del viewport.
+
+## Detalles a tener en cuenta
+
+- `IsoProjection` coincide con `TileMapLayer.map_to_local()` (la caja de la celda (0,0) empieza en
+  el origen); `tests/test_iso_projection.gd` lo comprueba contra un `TileMapLayer` real.
+- Las paredes de la vista viven en una sola `TileMapLayer` con `y_sort_enabled`; cada celda dibuja
+  las aristas que posee (norte = X, oeste = Y) con un tile de tres variantes: X, Y o ambas.
+- En el modo arista, el punto del ratón se interpreta sobre el plano del suelo, no sobre la
+  altura de la pared.
+- Hay un solo nivel visible (0). `GridMap2D` y `LevelView` ya reciben el nivel como parámetro.
+- Con `class_name` no se pueden calificar los enums con el nombre corto dentro de la propia clase
+  en firmas de funciones (`Edge.Side`, no `Side`).
 
 ## Controles
 

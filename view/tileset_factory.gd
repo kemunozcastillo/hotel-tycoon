@@ -16,6 +16,7 @@ extends RefCounted
 
 const GROUND_SOURCE_ID: int = 0
 const WALL_SOURCE_ID: int = 1
+const TERRAIN_SOURCE_ID: int = 2
 
 const GROUND_BASIC_COORDS: Vector2i = Vector2i(0, 0)
 
@@ -47,14 +48,26 @@ const EDGE_STATE_COUNT: int = 7
 const HEIGHT_COUNT: int = 3
 
 
-static func build() -> TileSet:
+## Con un catálogo de terrenos, añade además una fuente con un rombo por terreno (los tiles del
+## exterior); sin catálogo no hay fuente de terreno.
+static func build(terrain: TerrainCatalog = null) -> TileSet:
 	var tile_set := TileSet.new()
 	tile_set.tile_shape = TileSet.TILE_SHAPE_ISOMETRIC
 	tile_set.tile_layout = TileSet.TILE_LAYOUT_DIAMOND_DOWN
 	tile_set.tile_size = IsoProjection.TILE_SIZE
 	tile_set.add_source(_build_ground_source(), GROUND_SOURCE_ID)
 	tile_set.add_source(_build_wall_source(), WALL_SOURCE_ID)
+	if terrain != null and terrain.count() > 1:
+		tile_set.add_source(_build_terrain_source(terrain), TERRAIN_SOURCE_ID)
 	return tile_set
+
+
+## Coordenadas de atlas del tile de un terreno (su índice del catálogo menos 1: el 0 es "sin
+## terreno" y no se dibuja). (-1, -1) si no hay nada que dibujar.
+static func terrain_coords(index: int) -> Vector2i:
+	if index <= 0:
+		return Vector2i(-1, -1)
+	return Vector2i(index - 1, 0)
 
 
 ## Estado visual de una arista según lo que hay sobre ella y la altura con que se dibuja.
@@ -91,6 +104,54 @@ static func _build_ground_source() -> TileSetAtlasSource:
 	var source := _make_source(image, size)
 	source.create_tile(GROUND_BASIC_COORDS)
 	return source
+
+
+## Un rombo por terreno del catálogo, en fila. El arte es provisional: el color del terreno con un
+## borde algo más oscuro y un detalle suave (matas en el césped, juntas en la acera).
+static func _build_terrain_source(terrain: TerrainCatalog) -> TileSetAtlasSource:
+	var size: Vector2i = IsoProjection.TILE_SIZE
+	var types: Array[TerrainType] = terrain.get_types()
+	var image: Image = Image.create_empty(size.x * types.size(), size.y, false, Image.FORMAT_RGBA8)
+	var half := Vector2(size) * 0.5
+	for i in range(types.size()):
+		var color: Color = types[i].color
+		var border: Color = color.darkened(0.14)
+		for y in range(size.y):
+			for x in range(size.x):
+				var d: float = absf(x + 0.5 - half.x) / half.x + absf(y + 0.5 - half.y) / half.y
+				if d > 1.0:
+					continue
+				var pixel: Color = border if d > 0.94 else color
+				if d <= 0.94 and d > 0.12:
+					pixel = _terrain_detail(types[i].id, pixel, x, y)
+				image.set_pixel(i * size.x + x, y, pixel)
+	var source: TileSetAtlasSource = _make_source(image, size)
+	for i in range(types.size()):
+		source.create_tile(Vector2i(i, 0))
+	return source
+
+
+## Un pequeño detalle de textura según el terreno, para que no sea un color plano.
+static func _terrain_detail(id: StringName, color: Color, x: int, y: int) -> Color:
+	var hash_value: int = (x * 73856093) ^ (y * 19349663)
+	match id:
+		&"grass":
+			# Matas sueltas, algo más oscuras o más claras.
+			var bucket: int = absi(hash_value) % 23
+			if bucket == 0:
+				return color.darkened(0.12)
+			if bucket == 1:
+				return color.lightened(0.10)
+		&"sidewalk":
+			# Juntas de las losas, paralelas a los ejes de la cuadrícula.
+			var u: float = (x + 0.5) / 32.0 + (y + 0.5) / 16.0
+			var v: float = (x + 0.5) / 32.0 - (y + 0.5) / 16.0
+			if fposmod(u * 2.0, 1.0) < 0.07 or fposmod(v * 2.0, 1.0) < 0.07:
+				return color.darkened(0.10)
+		&"street":
+			if absi(hash_value) % 17 == 0:
+				return color.lightened(0.06)
+	return color
 
 
 static func _build_wall_source() -> TileSetAtlasSource:

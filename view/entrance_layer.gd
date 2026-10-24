@@ -1,7 +1,8 @@
 class_name EntranceLayer
 extends Node2D
-## Dibuja los marcadores de entrada de huéspedes: una baldosa con una flecha hacia el interior.
-## Verde si la entrada es válida; roja si la celda perdió el suelo. Solo lee EntrancePoints.
+## Dibuja los puntos de llegada de huéspedes (los extremos de la acera): una baldosa con una flecha
+## hacia el interior.
+## Verde si el punto es válido; rojo si la celda ya no se puede pisar. Solo lee EntrancePoints.
 
 const VALID_COLOR: Color = Color(0.35, 0.9, 0.5)
 const INVALID_COLOR: Color = Color(1.0, 0.4, 0.35)

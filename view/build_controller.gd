@@ -9,11 +9,10 @@ extends Node
 ## paredes a la vez. La herramienta Puerta coloca o quita puertas sobre las aristas. La
 ## herramienta Tipo asigna a la habitación pulsada el tipo elegido (clic derecho lo quita).
 ## La herramienta Agente (de desarrollo) selecciona un agente con clic izquierdo, o crea uno si
-## la celda está libre; clic derecho lo manda a la celda pulsada y Supr lo elimina. La herramienta
-## Entrada marca (clic izquierdo) o desmarca (derecho) la celda por la que llegan los huéspedes.
+## la celda está libre; clic derecho lo manda a la celda pulsada y Supr lo elimina.
 ## Esc cancela el arrastre en curso o, si no hay, deselecciona la herramienta.
 
-enum Tool { NONE, FLOOR, WALL, DOOR, ROOM, TYPE, AGENT, ENTRANCE }
+enum Tool { NONE, FLOOR, WALL, DOOR, ROOM, TYPE, AGENT }
 
 signal tool_changed(new_tool: Tool)
 ## Se eligió otro tipo de habitación para la herramienta Tipo.
@@ -195,13 +194,6 @@ func _apply_brush() -> void:
 			if room == null:
 				return
 			_state.rooms.set_room_type(room.id, &"" if removing else selected_type_id)
-		Tool.ENTRANCE:
-			if not _stroke_fresh or not _cursor.is_hovering:
-				return
-			if removing:
-				_state.entrances.remove(_cursor.hover_cell, _level)
-			else:
-				_state.entrances.add(_cursor.hover_cell, _level)
 		Tool.AGENT:
 			if not _stroke_fresh or not _cursor.is_hovering:
 				return

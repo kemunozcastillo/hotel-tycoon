@@ -332,3 +332,95 @@ func _diff(a: String, b: String) -> String:
 				context.append(lines_a[j].strip_edges())
 			return "línea %d: '%s' != '%s' (antes: %s)" % [i, lines_a[i].strip_edges(), lines_b[i].strip_edges(), " ".join(context)]
 	return "longitudes distintas: %d y %d líneas" % [lines_a.size(), lines_b.size()]
+
+
+# --- Exterior ---------------------------------------------------------------------------------------
+
+## Un hotel sobre el césped con una puerta a la calle y huéspedes llegando por la acera.
+func _street_hotel() -> GameState:
+	var state := GameState.new_hotel_game(_rules())
+	state.guests.set_seed(9)
+	state.wander.set_seed(9)
+	state.spawner.set_seed(9)
+	var reception := Rect2i(Vector2i(8, 22), Vector2i(4, 3))
+	var bedroom := Rect2i(Vector2i(14, 22), Vector2i(3, 2))
+	state.build.build_room(reception, 0)
+	state.build.build_room(bedroom, 0)
+	state.build.place_door(Edge.from_side(Vector2i(9, 24), Edge.Side.SOUTH), 0)
+	state.build.place_door(Edge.from_side(Vector2i(15, 23), Edge.Side.SOUTH), 0)
+	state.rooms.set_room_type(state.rooms.get_room_at(reception.position, 0).id, GuestRegistry.RECEPTION_TYPE)
+	state.rooms.set_room_type(state.rooms.get_room_at(bedroom.position, 0).id, GuestRegistry.BEDROOM_TYPE)
+	HotelFixture.run(state, 200.0)
+	return state
+
+
+func test_terrain_is_saved_and_the_street_hotel_continues_identically() -> void:
+	var state := _street_hotel()
+	assert_true(state.guests.total_arrived >= 1, "ya han llegado huéspedes por la calle")
+	var loaded: GameState = _reload(state)
+	assert_eq(loaded.grid.get_terrain_type(Vector2i(4, 2), 0).id, TerrainGenerator.GRASS)
+	assert_eq(loaded.grid.get_terrain_type(Vector2i(4, 29), 0).id, TerrainGenerator.SIDEWALK)
+	assert_eq(loaded.grid.get_terrain_type(Vector2i(4, 31), 0).id, TerrainGenerator.STREET)
+	assert_eq(loaded.entrances.get_valid(0), state.entrances.get_valid(0))
+	assert_true(_text(loaded) == _text(state), _diff(_text(state), _text(loaded)))
+	for step in range(40):
+		state.tick(5.0)
+		loaded.tick(5.0)
+	assert_true(_text(loaded) == _text(state), "tras seguir jugando: " + _diff(_text(state), _text(loaded)))
+
+
+func test_the_terrain_palette_survives_a_reordered_catalog() -> void:
+	var state := _street_hotel()
+	var data: Dictionary = JSON.parse_string(_text(state))
+	# El archivo se escribió con otro orden de terrenos: la paleta lo traduce.
+	var grid_data: Dictionary = data["grid"]
+	grid_data["terrain_palette"] = ["none", "grass", "sidewalk", "street"]
+	var layer: Dictionary = (grid_data["levels"] as Dictionary)["0"]
+	var bytes: PackedByteArray = Marshalls.base64_to_raw(layer["terrain"])
+	for i in range(bytes.size()):
+		bytes[i] = [0, 3, 2, 1][bytes[i]] # el índice del catálogo actual -> el del orden antiguo
+	layer["terrain"] = Marshalls.raw_to_base64(bytes)
+	var result: SaveGame.LoadResult = SaveGame.restore(data, _rules())
+	assert_true(result.is_ok(), str(result.errors))
+	assert_eq(result.state.grid.get_terrain_type(Vector2i(4, 2), 0).id, TerrainGenerator.GRASS)
+	assert_eq(result.state.grid.get_terrain_type(Vector2i(4, 29), 0).id, TerrainGenerator.SIDEWALK)
+	assert_eq(result.state.grid.get_terrain_type(Vector2i(4, 31), 0).id, TerrainGenerator.STREET)
+
+
+func test_a_terrain_that_no_longer_exists_becomes_no_terrain_with_a_warning() -> void:
+	var state := _street_hotel()
+	var data: Dictionary = JSON.parse_string(_text(state))
+	((data["grid"] as Dictionary)["terrain_palette"] as Array)[3] = "lava"
+	var result: SaveGame.LoadResult = SaveGame.restore(data, _rules())
+	assert_true(result.is_ok())
+	assert_eq(result.warnings.size(), 1)
+	assert_true(result.warnings[0].contains("lava"))
+	assert_eq(result.state.grid.get_terrain_index(Vector2i(4, 2), 0), 0)
+	assert_eq(result.state.grid.get_terrain_type(Vector2i(4, 29), 0).id, TerrainGenerator.SIDEWALK, "el resto se conserva")
+
+
+func test_a_version_1_game_loads_without_terrain() -> void:
+	var state := _busy_hotel() # sin terreno: como las partidas de la versión 1
+	var data: Dictionary = JSON.parse_string(_text(state))
+	data["version"] = 1
+	var grid_data: Dictionary = data["grid"]
+	grid_data.erase("terrain_palette")
+	((grid_data["levels"] as Dictionary)["0"] as Dictionary).erase("terrain")
+	var result: SaveGame.LoadResult = SaveGame.restore(data, _rules())
+	assert_true(result.is_ok(), str(result.errors))
+	assert_eq(result.state.grid.get_terrain_index(Vector2i(4, 2), 0), 0)
+	assert_eq(result.state.guests.get_guest_count(), state.guests.get_guest_count())
+	assert_eq(result.state.entrances.get_all(0), state.entrances.get_all(0), "las entradas antiguas se conservan")
+
+
+func test_a_version_2_game_needs_its_terrain_data() -> void:
+	var data: Dictionary = JSON.parse_string(_text(_street_hotel()))
+	var broken: Dictionary = data.duplicate(true)
+	(broken["grid"] as Dictionary).erase("terrain_palette")
+	_expect_rejected(broken, "sin paleta de terrenos")
+	broken = data.duplicate(true)
+	((broken["grid"] as Dictionary)["levels"] as Dictionary)["0"].erase("terrain")
+	_expect_rejected(broken, "sin los terrenos del nivel")
+	broken = data.duplicate(true)
+	((broken["grid"] as Dictionary)["terrain_palette"] as Array).pop_back() # la paleta es más corta que los índices
+	_expect_rejected(broken, "índices de terreno que la paleta no explica")

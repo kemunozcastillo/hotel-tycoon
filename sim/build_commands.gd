@@ -241,6 +241,8 @@ func _floor_op(cell: Vector2i, level: int, type: CellTypes.FloorType) -> BuildOp
 	var old: CellTypes.FloorType = _grid.get_floor_type(cell, level)
 	if old == type:
 		return null
+	if type != CellTypes.FloorType.NONE and not _grid.is_buildable_cell(cell, level):
+		return null # calle, acera...: no se construye (quitar lo que hubiera sí se puede)
 	var op := BuildOp.new()
 	op.level = level
 	op.is_floor = true
@@ -259,6 +261,8 @@ func _edge_op(edge: Edge, level: int, type: CellTypes.EdgeType) -> BuildOp:
 		return null
 	var old: CellTypes.EdgeType = _grid.get_edge_type(edge, level)
 	if old == type:
+		return null
+	if type != CellTypes.EdgeType.NONE and not _grid.is_buildable_edge(edge, level):
 		return null
 	var op := BuildOp.new()
 	op.level = level

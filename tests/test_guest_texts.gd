@@ -58,8 +58,9 @@ func test_agent_panel_text_uses_guest_text_when_the_agent_is_a_guest() -> void:
 
 
 func test_hotel_summary_asks_for_what_is_missing_first() -> void:
-	assert_true(GuestTexts.hotel_summary(0, 0, 0, 0, false, false).contains("entrada"), "sin entrada")
+	assert_true(GuestTexts.hotel_summary(0, 0, 0, 0, false, false).contains("punto de llegada"), "sin punto de llegada")
 	assert_true(GuestTexts.hotel_summary(0, 0, 0, 0, true, false).contains("recepción"), "sin recepción")
+	assert_true(GuestTexts.hotel_summary(0, 0, 0, 0, true, true, false).contains("puerta al exterior"), "recepción inalcanzable")
 	assert_eq(GuestTexts.hotel_summary(5, 2, 1, 4, true, true),
 			"Huéspedes 5  ·  En espera 2  ·  Dormitorios libres 1/4")
 

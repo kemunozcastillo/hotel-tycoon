@@ -41,10 +41,12 @@ static func _duration_text(minutes: float) -> String:
 ## Resumen del hotel para la etiqueta de estado. Si falta algo imprescindible para que lleguen
 ## huéspedes, lo avisa en lugar de mostrar contadores.
 static func hotel_summary(guest_count: int, waiting: int, free_bedrooms: int, total_bedrooms: int,
-		has_entrance: bool, has_reception: bool) -> String:
+		has_entrance: bool, has_reception: bool, reception_reachable: bool = true) -> String:
 	if not has_entrance:
-		return "Falta una entrada: marca una celda con la herramienta Entrada"
+		return "No hay ningún punto de llegada de huéspedes en el mapa"
 	if not has_reception:
 		return "Falta una recepción operativa (tipo Recepción, con puerta)"
+	if not reception_reachable:
+		return "Ninguna recepción es alcanzable desde la calle: construye una puerta al exterior"
 	return "Huéspedes %d  ·  En espera %d  ·  Dormitorios libres %d/%d" % [
 		guest_count, waiting, free_bedrooms, total_bedrooms]

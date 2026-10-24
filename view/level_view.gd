@@ -3,9 +3,9 @@ extends Node2D
 ## Representación visual de un nivel de GridMap2D. Solo lee el mapa y reacciona a sus
 ## señales; nunca modifica la simulación.
 ##
-## Capas (de atrás hacia delante): rejilla, suelo y un contenedor ordenado por Y con las paredes
-## y las entidades (agentes). Las paredes comparten una sola capa con ordenación por Y, y las
-## entidades se ordenan con ellas, para que lo que está delante tape a lo que está detrás.
+## Capas (de atrás hacia delante): terreno exterior, rejilla, suelo y un contenedor ordenado por Y
+## con las paredes y las entidades (agentes). Las paredes comparten una sola capa con ordenación por
+## Y, y las entidades se ordenan con ellas, para que lo que está delante tape a lo que está detrás.
 ##
 ## Las paredes se dibujan con la altura que indica el modo de visualización (WallViewMode): en el
 ## modo corte, las que tapan el interior bajan. Al cambiar de modo se redibujan todas; al cambiar
@@ -17,6 +17,7 @@ signal wall_mode_changed(mode: WallViewMode.Mode)
 var _wall_mode: WallViewMode.Mode = WallViewMode.default_mode()
 var _grid: GridMap2D
 var _level: int = 0
+var _terrain: TileMapLayer
 var _lines: GridLines
 var _ground: TileMapLayer
 var _entities: Node2D
@@ -26,7 +27,11 @@ var _walls: TileMapLayer
 func setup(grid: GridMap2D, level: int) -> void:
 	_grid = grid
 	_level = level
-	var tile_set: TileSet = TilesetFactory.build()
+	var tile_set: TileSet = TilesetFactory.build(grid.terrain)
+
+	_terrain = TileMapLayer.new()
+	_terrain.tile_set = tile_set
+	add_child(_terrain)
 
 	_lines = GridLines.new()
 	add_child(_lines)
@@ -47,6 +52,7 @@ func setup(grid: GridMap2D, level: int) -> void:
 
 	grid.cell_changed.connect(_on_cell_changed)
 	grid.edge_changed.connect(_on_edge_changed)
+	grid.terrain_changed.connect(_on_terrain_changed)
 	_redraw_all()
 
 
@@ -84,14 +90,29 @@ func get_entities_root() -> Node2D:
 
 
 func _redraw_all() -> void:
+	_terrain.clear()
 	_ground.clear()
 	_walls.clear()
 	# Las aristas del borde sur/este viven en celdas con x == ancho o y == alto.
 	for y in range(_grid.size.y + 1):
 		for x in range(_grid.size.x + 1):
 			var cell := Vector2i(x, y)
+			_update_terrain(cell)
 			_update_ground(cell)
 			_update_walls(cell)
+
+
+func _update_terrain(cell: Vector2i) -> void:
+	var coords: Vector2i = TilesetFactory.terrain_coords(_grid.get_terrain_index(cell, _level))
+	if coords.x < 0 or not _grid.in_bounds(cell):
+		_terrain.erase_cell(cell)
+	else:
+		_terrain.set_cell(cell, TilesetFactory.TERRAIN_SOURCE_ID, coords)
+
+
+## Coordenadas de atlas del tile de terreno de una celda ((-1, -1) si no hay ninguno).
+func get_terrain_coords(cell: Vector2i) -> Vector2i:
+	return _terrain.get_cell_atlas_coords(cell)
 
 
 func _update_ground(cell: Vector2i) -> void:
@@ -131,6 +152,11 @@ func _on_cell_changed(cell: Vector2i, level: int) -> void:
 	if _wall_mode == WallViewMode.Mode.CUTAWAY:
 		for wall_cell: Vector2i in WallVisibility.dependent_wall_cells(cell):
 			_update_walls(wall_cell)
+
+
+func _on_terrain_changed(cell: Vector2i, level: int) -> void:
+	if level == _level:
+		_update_terrain(cell)
 
 
 func _on_edge_changed(edge: Edge, level: int) -> void:

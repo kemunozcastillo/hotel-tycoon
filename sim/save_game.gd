@@ -11,7 +11,7 @@ extends RefCounted
 ##
 ## Para cambiar el formato: sube `VERSION` y añade en `migrate` el paso de la versión anterior.
 
-const VERSION: int = 1
+const VERSION: int = 2
 const GAME_ID: String = "hotel-tycoon"
 const SAVE_DIR: String = "user://saves"
 const MANUAL_SLOT: StringName = &"manual"
@@ -69,7 +69,8 @@ static func parse_text(text: String, errors: Array[String]) -> Dictionary:
 	return json.data as Dictionary
 
 
-## Pasa los datos de una versión antigua a la actual. Hoy solo existe la versión 1.
+## Pasa los datos de una versión antigua a la actual. La versión 1 no tenía terreno exterior: se
+## carga igual, con el mapa sin terreno (`restore` lo sabe por `version`).
 static func migrate(data: Dictionary, _from_version: int) -> Dictionary:
 	return data
 
@@ -97,7 +98,7 @@ static func restore(data: Dictionary, rules: EconomyRules, catalog: RoomTypeCata
 
 	var state := GameState.new(map_size, catalog, rules)
 	state.clock.restore(reader.read_dict(data, "clock", "partida"), reader)
-	state.grid.restore(reader.read_dict(data, "grid", "partida"), reader)
+	state.grid.restore(reader.read_dict(data, "grid", "partida"), reader, version >= 2)
 	if not reader.is_ok():
 		return _fail(result, reader)
 	state.rooms.restore(reader.read_dict(data, "rooms", "partida"), reader)

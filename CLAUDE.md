@@ -42,13 +42,27 @@ Referencias de género: Project Hospital y Prison Architect.
   El lado corto mínimo se mide sobre el rectángulo que contiene a la habitación (una en L
   de 3 celdas cuenta como lado 2). Para añadir un tipo basta con una entrada nueva en el JSON.
   Al exportar el juego hay que incluir `data/*.json` en el filtro de exportación del preset.
+- **Terreno exterior**: cada celda tiene, bajo el suelo construido, un terreno (calle, acera,
+  césped...) definido en `data/terrain_types.json` (`id`, `name`, `color`, `walkable`, `cost` >= 1,
+  `buildable`). `TerrainCatalog` lo carga como los demás catálogos (descarta lo mal formado con un
+  aviso); su **índice 0 es siempre "sin terreno"** (no se pisa, se puede construir, no se dibuja):
+  es lo que tiene cualquier celda de un mapa sin trazado. `LevelLayer` guarda el índice de cada
+  celda; `GridMap2D.get_terrain_type / set_terrain_index` (emite `terrain_changed` y sube
+  `revision`). **`GameState.new(...)` no trae terreno** (los tests de otras fases siguen pisando
+  solo lo construido); el juego real usa `GameState.new_hotel_game()`, que aplica
+  `TerrainGenerator.apply_default_layout` (calle de 2 filas en el borde sur, acera de 1 fila y
+  césped en el resto de un mapa 32x32) y registra como puntos de llegada los dos extremos de la
+  acera. El terreno aún no lo edita el jugador.
 - **Caminar**: `GridMap2D.is_walkable(celda, nivel)` es la **única** función que decide si se
-  puede pisar una celda (hoy: tiene suelo construido) y `get_walk_cost` su coste (hoy siempre
-  1.0, debe ser >= 1.0). Pathfinder, agentes y paseo preguntan solo ahí y nunca miran el suelo.
-  Cuando exista un terreno predefinido (calle, acera, pasto: catálogo `data/terrain_types.json`
-  con id, caminable, coste y color, y una capa de terreno por nivel bajo el suelo construido), se
-  amplía en ese único sitio. Entonces habrá que limitar por zonas o tareas adónde pasea cada
-  agente. `GridMap2D.revision` sube con cada cambio del mapa (para invalidar rutas guardadas).
+  puede pisar una celda (tiene suelo construido o su terreno es caminable) y `get_walk_cost` su
+  coste (1.0 con suelo construido; si no, el del terreno: acera 1, césped 1,4, calle 4; siempre
+  >= 1.0). Pathfinder, agentes y paseo preguntan solo ahí y nunca miran el suelo ni el terreno. La
+  construcción respeta `buildable`: `is_buildable_cell` para suelos y `is_buildable_edge` para
+  paredes y puertas (basta con que una de las dos celdas que separa se pueda construir, así una
+  puerta puede dar de un edificio sobre césped a la acera); quitar piezas siempre se puede. Los
+  agentes de desarrollo pueden pasear por la calle: limitar por zonas o tareas adónde pasea cada
+  agente queda para cuando haya personal. `GridMap2D.revision` sube con cada cambio del mapa (para
+  invalidar rutas guardadas).
 - **Pathfinder** (`sim/pathfinder.gd`): A* de 8 direcciones sobre `is_walkable` y paredes. Un
   paso diagonal solo es válido si los dos pasos ortogonales que lo rodean también lo son (no se
   cortan esquinas). La puerta se cruza, la pared no. `find_path` devuelve la ruta con origen y
@@ -63,14 +77,18 @@ Referencias de género: Project Hospital y Prison Architect.
   una celda alcanzable a <= 12 celdas; se sustituirá por necesidades y tareas. Tiene semilla
   (`state.wander.set_seed`) para pruebas reproducibles.
 - **Huéspedes** (`Guest`, `GuestRegistry`, `RoomOccupancy`, `GuestSpawner`, `EntrancePoints`): un
-  `Guest` es la parte "de hotel" de un `Agent` (su cuerpo; `wanders = false`). Ciclo: llega por una
-  **entrada** (marcador que coloca el jugador sobre una celda con suelo; provisional hasta que haya
-  exterior caminable) → camina a la **recepción** (tipo `reception`, la operativa más cercana por
-  coste de ruta) → espera en un puesto propio de la recepción (el mostrador es la celda más lejana a
-  la puerta) → **check-in** de uno en uno, por orden de llegada, 3 min → se le asigna el dormitorio
+  `Guest` es la parte "de hotel" de un `Agent` (su cuerpo; `wanders = false`). Ciclo: llega por un
+  **punto de llegada** (`EntrancePoints`: hoy los dos extremos de la acera, que pone
+  `new_hotel_game`; el jugador no los edita) → camina a la **recepción** (tipo `reception`, la
+  operativa más cercana por coste de ruta) **entrando por una puerta del edificio** → espera en un
+  puesto propio de la recepción (el mostrador es la celda más lejana a la puerta) → **check-in** de
+  uno en uno, por orden de llegada, 3 min → se le asigna el dormitorio
   (`bedroom`) **libre, operativo y alcanzable más cercano** (`Pathfinder.reachable_costs` desde donde
   está) y se **reserva** en `RoomOccupancy` en ese instante (nunca dos huéspedes en una
-  habitación) → se aloja 2-6 h de juego → se va por la entrada, liberando la habitación. Sin
+  habitación) → se aloja 2-6 h de juego → se va por donde llegó, liberando la habitación. Sin
+  una recepción alcanzable desde la calle no llegan huéspedes (`GuestRegistry.is_reception_reachable`,
+  con caché que se invalida al cambiar el mapa, las habitaciones o las entradas; la etiqueta de
+  estado avisa de que falta una puerta al exterior). Sin
   dormitorio libre espera en la recepción y se reintenta cuando cambia el mapa, las habitaciones o
   la ocupación; a los 60 min de espera se marcha enfadado. Si su habitación deja de ser válida
   (derribada, sin tipo, no operativa) la pierde, recupera la paciencia y busca otra. Sin camino al
@@ -119,7 +137,10 @@ Referencias de género: Project Hospital y Prison Architect.
   nuevo). Quien se va enfadado antes de tener habitación no paga. El mantenimiento diario de cada
   habitación con tipo se cobra al cambiar de día (`Economy.update` cobra cada día pendiente).
 - **Guardar y cargar** (`SaveGame`, `SaveReader`, `sim/`): un JSON legible en `user://saves/` con
-  `version` (hoy 1; subirla y añadir el paso en `SaveGame.migrate` si cambia el formato). Cada pieza
+  `version` (hoy 2; la 1 no tenía terreno y se carga sin él; subirla y añadir el paso en
+  `SaveGame.migrate` si cambia el formato). El terreno se guarda como índices del catálogo más una
+  **paleta de ids** (`terrain_palette`), así que cambiar el orden de `terrain_types.json` no rompe
+  los archivos y un terreno que ya no existe deja esas celdas sin terreno con un aviso. Cada pieza
   con estado tiene `serialize()` y `restore(data, reader)`: mapa (`GridMap2D`/`LevelLayer`, con su
   `revision`, porque las rutas de los agentes se refieren a ella), habitaciones (solo id estable y
   tipo, identificadas por una celda: el resto se deduce del mapa), piezas colocadas, libro de
@@ -161,19 +182,20 @@ sim/     lógica pura: GridMap2D (niveles, suelo, paredes y puertas por arista),
          EconomyRules / Ledger / BuildItem / PlacedPieces / Inventory / BuildOp / BuildQuote /
          Economy (dinero, costes, inventario y pagos), StorageCapacity (capacidad del almacén),
          SaveGame / SaveReader (guardar y cargar la partida),
+         TerrainType / TerrainCatalog / TerrainGenerator (terreno exterior),
          GameClock, GameState (raíz de la simulación)
 view/    main.tscn/main.gd (escena principal), IsoProjection (única que conoce el rombo 64x32),
          TilesetFactory (arte provisional por código), LevelView (TileMapLayer), GridLines,
          IsoCamera, CellCursor, ShapePreview, RoomOverlay, EntranceLayer, AgentsLayer / AgentView,
          BuildController, WallStyle / WallViewMode / WallVisibility (alturas y modo corte de
          paredes)
-ui/      BuildToolbar (herramientas, paleta de tipos, Entrada y Agente), WallModeBar, RoomInfoPanel,
+ui/      BuildToolbar (herramientas, paleta de tipos y Agente), WallModeBar, RoomInfoPanel,
          AgentInfoPanel, HotelStatusLabel, RoomTexts y GuestTexts (textos en español), ClockLabel
          (día, hora y velocidad), MoneyTexts (importes y textos de dinero), MoneyButton (saldo),
          FinancePanel, NoticeLabel (avisos), RemovalModeBar (Vender/Guardar), InventoryPanel
 data/    room_types.json (tipos de habitación, requisitos, precios de estancia, mantenimiento y
          capacidad de almacén),
-         economy.json (reglas de economía)
+         economy.json (reglas de economía), terrain_types.json (terrenos exteriores)
 assets/  arte y audio (vacío; el arte provisional se genera por código)
 tests/   suites headless de sim/ y view/ más herramientas de verificación con ventana
 ```
@@ -209,21 +231,24 @@ Código de salida 1 si algún test falla. Para añadir una suite: crear `tests/t
   puertas, detección de habitaciones, asignación de tipos con clics reales sobre la barra, panel
   de información, herramienta Agente (crear, seleccionar, enviar, bloqueo, Supr), la ordenación
   de los agentes con las paredes (comprobada por el color real de los píxeles, en los dos ejes), el
-  ciclo completo de un huésped (herramienta Entrada, tipos Recepción y Dormitorio, llegada,
-  check-in, alojamiento, paneles, salida), el modo corte de paredes (tecla C, botones, y la
+  ciclo completo de un huésped (tipos Recepción y Dormitorio, llegada por la acera y entrada por una
+  puerta, check-in, alojamiento, paneles, salida), el exterior (color de cada terreno, construir
+  solo sobre el césped), el modo corte de paredes (tecla C, botones, y la
   visibilidad de un agente por píxeles en los cuatro modos), el dinero (saldo, vista previa con
   coste, fondos insuficientes, demoler), el inventario (V, I, almacén y su capacidad, guardar,
   reutilizar gratis, vender, derribar el almacén), guardar y cargar (F5, F9, Mayús+F9, archivo roto,
   autoguardado; usa `user://test_saves` vía `main.save_directory`) y
-  reloj. Admite hasta veinticuatro rutas de PNG tras `--` (en el orden en que las guarda cada
+  reloj. Admite hasta veinticinco rutas de PNG tras `--` (en el orden en que las guarda cada
   comprobación; ver las llamadas `_save_args`). La escena real tiene economía activa, así que
   la comprobación del dinero fija un saldo de prueba y deja fondos de sobra al terminar para las
   demás.
   Las comprobaciones de ordenación con las paredes fijan el modo Arriba (con paredes bajas no
   tapan al agente).
 - `tests/hotel_fixture.gd` (`HotelFixture.build(n_dormitorios, semilla, llegadas_automaticas, reglas_de_economia)`):
-  hotel de prueba (vestíbulo, entrada, recepción y N dormitorios con puerta) para los tests de
-  huéspedes. Las llegadas automáticas vienen desactivadas; cada test llama a `guests.arrive`.
+  hotel de prueba (vestíbulo de suelo, un punto de llegada, recepción y N dormitorios con puerta;
+  sin terreno exterior) para los tests de huéspedes. Las llegadas automáticas vienen desactivadas;
+  cada test llama a `guests.arrive`. `tests/test_street_arrivals.gd` prueba las llegadas desde la
+  acera sobre `GameState.new_hotel_game()`.
 - `tests/capture_view.gd`: captura una escena de demostración con varias habitaciones y agentes
   paseando.
 
@@ -259,6 +284,10 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
   redibujan las dos celdas cuyas paredes dependen de ella (`WallVisibility.dependent_wall_cells`);
   los tests comprueban que la actualización incremental coincide con un redibujado completo. Las
   vistas previas de construcción y las etiquetas usan siempre la altura completa.
+- El terreno se dibuja en su propia `TileMapLayer` (la más baja de `LevelView`, bajo la rejilla y el
+  suelo): `TilesetFactory.build(catalogo)` añade una fuente `TERRAIN_SOURCE_ID` con un rombo por
+  terreno (arte provisional: color del terreno con borde más oscuro y un detalle suave según su
+  id) en `terrain_coords(indice)` = (índice - 1, 0). `EntranceLayer` marca los puntos de llegada.
 - El tinte de habitaciones (`RoomOverlay`) se inserta entre el suelo y las paredes
   (`LevelView.add_ground_overlay`) para no teñir las paredes; su etiqueta flota por encima.
 - Los comandos de forma (`fill_rect_floor`, `outline_rect_walls`, `build_room`, ...) solo añaden
@@ -302,9 +331,12 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
 - Agentes (herramienta de desarrollo, botón Agente): clic izquierdo sobre suelo libre crea un
   agente y lo selecciona; sobre un agente, lo selecciona. Clic derecho envía al seleccionado a esa
   celda (se dibuja su ruta), `Supr` lo elimina. Los agentes libres pasean solos.
-- Hotel: para que lleguen huéspedes hacen falta una **entrada** (botón Entrada: clic izquierdo
-  marca una celda con suelo, derecho la quita), una habitación de tipo **Recepción** operativa y
-  dormitorios (tipo **Dormitorio**). Arriba a la derecha, debajo del reloj, un resumen indica qué
+- Exterior: el mapa trae una calle (borde sur), una acera y césped; solo se construye sobre el
+  césped (la acera y la calle no admiten suelo ni paredes, salvo puertas y paredes en la línea
+  entre césped y acera). Los huéspedes aparecen en los extremos de la acera.
+- Hotel: para que lleguen huéspedes hacen falta una habitación de tipo **Recepción** operativa a la
+  que se llegue desde la acera **por una puerta al exterior** y dormitorios (tipo **Dormitorio**).
+  Arriba a la derecha, debajo del reloj, un resumen indica qué
   falta o cuántos huéspedes, cuántos esperan y cuántos dormitorios hay libres. Con la herramienta
   Agente se puede seleccionar a un huésped y ver su estado; el panel de un dormitorio indica quién
   lo ocupa. Los huéspedes llevan sombrero (y maleta al llegar o irse).

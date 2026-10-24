@@ -32,9 +32,8 @@ func setup(controller: BuildController, catalog: RoomTypeCatalog) -> void:
 		for type: RoomType in catalog.get_types():
 			_add_type_button(box, _group, type)
 
-	# Entrada de huéspedes, y herramienta de desarrollo para crear, seleccionar y mandar agentes.
+	# Herramienta de desarrollo para crear, seleccionar y mandar agentes.
 	box.add_child(VSeparator.new())
-	_add_tool_button(box, _group, "Entrada", BuildController.Tool.ENTRANCE)
 	_add_tool_button(box, _group, "Agente", BuildController.Tool.AGENT)
 
 	var hint := Label.new()

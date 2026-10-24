@@ -30,6 +30,7 @@ func _initialize() -> void:
 	await _check_wall_modes()
 	await _check_economy()
 	await _check_inventory()
+	await _check_exterior()
 	await _check_saves()
 	await _check_clock()
 
@@ -184,7 +185,7 @@ func _check_build() -> void:
 	for edge: Edge in expected:
 		all_present = all_present and state.grid.has_wall(edge, 0)
 	_check(all_present, "ocho clics colocan las ocho aristas del perímetro del baño 2x2")
-	_check(GridTestHelpers.count_walls(state.grid) == 8, "hay exactamente 8 paredes en el mapa (hay %d)" % GridTestHelpers.count_walls(state.grid))
+	_check(GridTestHelpers.count_walls(state.grid) == 8, "hay exactamente 8 paredes en el mapa (hay %d) %s" % [GridTestHelpers.count_walls(state.grid), _wall_list(state.grid)])
 	_check(GridTestHelpers.flood_fill(state.grid, origin).size() == 4, "el baño encierra exactamente 4 celdas")
 
 	# Arrastrar pinta una línea de paredes; clic derecho quita una (la puerta).
@@ -437,7 +438,9 @@ func _check_agents() -> void:
 	await _click_grid(_center(Vector2i(18, 17)), MOUSE_BUTTON_LEFT)
 	_check(controller.selected_agent_id == agent.id, "volver a pulsar al primero lo selecciona")
 	await _click_grid(_center(Vector2i(2, 2)), MOUSE_BUTTON_LEFT)
-	_check(state.agents.get_agents().size() == 2, "clic sin suelo no crea agentes")
+	_check(state.agents.get_agents().size() == 3, "el césped también se pisa: un clic crea un agente")
+	state.agents.remove(state.agents.get_agents()[2].id)
+	await _click_grid(_center(Vector2i(18, 17)), MOUSE_BUTTON_LEFT) # vuelve a seleccionar al primero
 
 	# Enviarlo con clic derecho; el reloj a x3 para que no tarde. Se vigila cada fotograma que
 	# solo pise suelo y no cruce paredes.
@@ -541,16 +544,15 @@ func _check_guests() -> void:
 	var agent_panel: AgentInfoPanel = _main.agent_info_panel
 	var room_panel: RoomInfoPanel = _main.room_info_panel
 	var status: HotelStatusLabel = _main.hotel_status_label
-	var entrance := Vector2i(17, 20)
 	var reception_rect := Rect2i(Vector2i(22, 17), Vector2i(4, 3))
 	var bedroom_a_rect := Rect2i(Vector2i(18, 23), Vector2i(3, 2))
 	var bedroom_b_rect := Rect2i(Vector2i(24, 23), Vector2i(3, 2))
-	var floor_rect := Rect2i(Vector2i(16, 16), Vector2i(15, 12))
 
-	# Las llegadas se disparan a mano para que la comprobación no dependa del azar.
+	# Las llegadas se disparan a mano para que la comprobación no dependa del azar. Los huéspedes
+	# llegan por la acera (el borde sur del mapa) y entran por las puertas de los edificios.
 	state.spawner.enabled = false
 	state.clock.set_speed(GameClock.Speed.PAUSED)
-	state.build.fill_rect_floor(floor_rect, 0)
+	_check(state.entrances.get_valid(0).size() == 2, "el mapa trae sus dos puntos de llegada en la acera")
 	for rect: Rect2i in [reception_rect, bedroom_a_rect, bedroom_b_rect]:
 		state.build.build_room(rect, 0)
 	state.build.place_door(Edge.from_side(Vector2i(22, 18), Edge.Side.WEST), 0)
@@ -558,21 +560,7 @@ func _check_guests() -> void:
 	state.build.place_door(Edge.from_side(bedroom_b_rect.position, Edge.Side.NORTH), 0)
 	camera.position = IsoProjection.grid_to_world(Vector2(22, 21))
 	await _frames(4)
-	_check(status.text.contains("entrada"), "sin entrada, el hotel avisa de que falta: '%s'" % status.text)
-
-	# Herramienta Entrada: colocar, quitar y volver a colocar con clics reales.
-	await _click_button(toolbar.get_tool_button(BuildController.Tool.ENTRANCE))
-	_check(controller.current_tool == BuildController.Tool.ENTRANCE, "el botón Entrada activa la herramienta")
-	await _click_grid(_center(entrance), MOUSE_BUTTON_LEFT)
-	_check(state.entrances.has(entrance, 0), "clic izquierdo marca la entrada")
-	await _click_grid(_center(Vector2i(2, 2)), MOUSE_BUTTON_LEFT)
-	_check(state.entrances.get_all(0).size() == 1, "una celda sin suelo no se puede marcar")
-	await _click_grid(_center(entrance), MOUSE_BUTTON_RIGHT)
-	_check(not state.entrances.has(entrance, 0), "clic derecho la quita")
-	await _click_grid(_center(entrance), MOUSE_BUTTON_LEFT)
-	_check(state.entrances.has(entrance, 0), "y se puede volver a marcar")
-	await _frames(3)
-	_check(status.text.contains("recepción"), "con entrada pero sin recepción, avisa: '%s'" % status.text)
+	_check(status.text.contains("recepción"), "sin recepción, el hotel avisa de que falta: '%s'" % status.text)
 
 	# Tipos de habitación con los botones de la paleta (Recepción y Dormitorio).
 	await _click_button(toolbar.get_type_button(&"reception"))
@@ -584,23 +572,45 @@ func _check_guests() -> void:
 	_check(state.guests.has_operational_reception(0), "la recepción asignada es operativa")
 	_check(status.text == "Huéspedes 0  ·  En espera 0  ·  Dormitorios libres 2/2", "resumen del hotel listo: '%s'" % status.text)
 
-	# Llega un huésped (reloj en pausa para seleccionarlo en la entrada).
+	# Con la recepción encerrada (su única puerta da a otra sala sin salida), no se llega a ella
+	# desde la calle y el hotel lo dice.
+	var closet_rect := Rect2i(Vector2i(26, 17), Vector2i(2, 3))
+	state.build.build_room(closet_rect, 0)
+	state.build.place_door(Edge.from_side(Vector2i(25, 17), Edge.Side.EAST), 0)
+	state.build.place_wall(Edge.from_side(Vector2i(22, 18), Edge.Side.WEST), 0) # sustituye la puerta exterior
+	await _frames(3)
+	_check(not state.guests.is_reception_reachable(0) and status.text.contains("puerta al exterior"), "sin puerta al exterior, avisa: '%s'" % status.text)
+	state.build.place_wall(Edge.from_side(Vector2i(25, 17), Edge.Side.EAST), 0) # cierra la puerta a la otra sala
+	state.build.place_door(Edge.from_side(Vector2i(22, 18), Edge.Side.WEST), 0)
+	await _frames(3)
+	_check(state.guests.is_reception_reachable(0) and status.text.begins_with("Huéspedes"), "al reabrir la puerta vuelve el resumen: '%s'" % status.text)
+
+	# Llega un huésped por la acera (reloj en pausa hasta que esté en la recepción para poder
+	# seleccionarlo con un clic).
 	await _click_button(toolbar.get_tool_button(BuildController.Tool.AGENT))
 	var guest: Guest = state.guests.arrive(0)
 	_check(guest != null and guest.state == Guest.State.ARRIVING, "llega un huésped")
+	var arrival: Vector2i = state.agents.get_agent(guest.agent_id).get_cell()
+	_check(TerrainGenerator.arrival_cells(state.grid.size).has(arrival) and state.grid.get_terrain_type(arrival, 0).id == TerrainGenerator.SIDEWALK, "aparece en la acera (%s)" % str(arrival))
 	await _frames(3)
 	_check(layer.get_view_count() == 1, "con su vista")
-	await _click_grid(_center(entrance), MOUSE_BUTTON_LEFT)
-	_check(controller.selected_agent_id == guest.agent_id, "la herramienta Agente lo selecciona en la entrada")
-	_check(agent_panel.visible and agent_panel.get_plain_text().contains("Huésped %d" % guest.id) and agent_panel.get_plain_text().contains("Llega a la recepción"), "el panel muestra su estado de huésped: '%s'" % agent_panel.get_plain_text())
+	state.clock.set_speed(GameClock.Speed.X3)
+	var queued: bool = await _wait_until(func() -> bool: return guest.state == Guest.State.QUEUED or guest.state == Guest.State.CHECKING_IN, 1500)
+	state.clock.set_speed(GameClock.Speed.PAUSED)
+	_check(queued, "camina desde la calle hasta la recepción por la puerta (estado %d)" % guest.state)
+	await _frames(3)
+	var guest_cell: Vector2i = state.agents.get_agent(guest.agent_id).get_cell()
+	await _click_grid(_center(guest_cell), MOUSE_BUTTON_LEFT)
+	_check(controller.selected_agent_id == guest.agent_id, "la herramienta Agente lo selecciona")
+	_check(agent_panel.visible and agent_panel.get_plain_text().contains("Huésped %d" % guest.id) and (agent_panel.get_plain_text().contains("Espera su turno") or agent_panel.get_plain_text().contains("check-in")), "el panel muestra su estado de huésped: '%s'" % agent_panel.get_plain_text())
 	_check(status.text.contains("Huéspedes 1"), "el resumen cuenta al huésped")
 
-	# Se pone en marcha el reloj: va a la recepción, hace check-in y se aloja.
+	# Se pone en marcha el reloj: hace check-in y se aloja.
 	state.clock.set_speed(GameClock.Speed.X3)
-	await _frames(70)
+	await _frames(20)
 	_save_args(11)
 	var arrived_ok: bool = await _wait_until(func() -> bool: return guest.state == Guest.State.STAYING, 1500)
-	_check(arrived_ok, "completa llegada, check-in y asignación hasta alojarse (estado %d)" % guest.state)
+	_check(arrived_ok, "completa check-in y asignación hasta alojarse (estado %d)" % guest.state)
 	_check(guest.room_id != 0 and state.guests.occupancy.occupant_of(guest.room_id) == guest.id, "con un dormitorio reservado a su nombre")
 	_check(state.guests.count_bedrooms(0) == Vector2i(1, 2), "queda un dormitorio libre de dos")
 	await _frames(3)
@@ -618,11 +628,11 @@ func _check_guests() -> void:
 	await _move_mouse_to_grid(_center(free_room.cells[0]))
 	_check(room_panel.get_plain_text().contains("Libre"), "la otra aparece libre")
 
-	# Se avanza la simulación hasta que termina su estancia (a base de pasos grandes).
-	for i in range(150):
-		state.tick(5.0)
+	# Se avanza la simulación hasta que termina su estancia y vuelve a la calle (pasos grandes).
+	for i in range(400):
+		state.tick(2.5)
 	await _frames(4)
-	_check(state.guests.get_guest_count() == 0 and state.guests.total_left_happy == 1, "termina su estancia y se va contento")
+	_check(state.guests.get_guest_count() == 0 and state.guests.total_left_happy == 1, "termina su estancia, vuelve a la calle y se va contento")
 	_check(layer.get_view_count() == 0 and not agent_panel.visible, "su vista y su panel desaparecen")
 	_check(status.text == "Huéspedes 0  ·  En espera 0  ·  Dormitorios libres 2/2", "los dormitorios vuelven a estar libres: '%s'" % status.text)
 
@@ -630,10 +640,8 @@ func _check_guests() -> void:
 	controller.set_tool(BuildController.Tool.NONE)
 	for placed in state.agents.get_agents():
 		state.agents.remove(placed.id)
-	state.entrances.remove(entrance, 0)
-	for rect: Rect2i in [reception_rect, bedroom_a_rect, bedroom_b_rect]:
+	for rect: Rect2i in [reception_rect, bedroom_a_rect, bedroom_b_rect, closet_rect]:
 		state.build.demolish_room(rect, 0)
-	state.build.clear_rect_floor(floor_rect, 0)
 	state.clock.set_speed(GameClock.Speed.X1)
 	state.clock.total_minutes = GameClock.START_MINUTES # el avance rápido llevó el reloj al día 2
 	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
@@ -970,6 +978,58 @@ func _check_clock() -> void:
 	_check(clock.speed == GameClock.Speed.X1, "pausar y reanudar vuelve a la velocidad anterior")
 
 
+func _check_exterior() -> void:
+	print("== exterior")
+	var state: GameState = _main.state
+	var controller: BuildController = _main.build_controller
+	var toolbar: BuildToolbar = _main.toolbar
+	var camera: IsoCamera = _main.camera
+	var row: int = TerrainGenerator.sidewalk_row_of(state.grid.size)
+	state.clock.set_speed(GameClock.Speed.PAUSED)
+	camera.position = IsoProjection.grid_to_world(Vector2(14, row - 1))
+	await _frames(4)
+
+	# Lo que se ve: el color de cada terreno en el centro de su celda.
+	var away := Vector2(40.0, 400.0)
+	await _send_mouse_motion(away)
+	await _frames(2)
+	var image: Image = root.get_texture().get_image()
+	for pair: Array in [[Vector2i(10, row - 3), TerrainGenerator.GRASS], [Vector2i(10, row), TerrainGenerator.SIDEWALK], [Vector2i(10, row + 1), TerrainGenerator.STREET]]:
+		var type: TerrainType = state.grid.terrain.get_type(pair[1])
+		var pixel: Color = _pixel_at_cell(image, pair[0])
+		_check(_close(pixel, type.color), "la celda %s se ve como %s (%s)" % [str(pair[0]), type.display_name, str(pixel)])
+
+	# Se construye con clics reales: en el césped sí, en la acera y en la calle no.
+	var balance: int = state.ledger.balance
+	await _click_button(toolbar.get_tool_button(BuildController.Tool.FLOOR))
+	await _click_grid(_center(Vector2i(10, row)), MOUSE_BUTTON_LEFT)
+	await _click_grid(_center(Vector2i(10, row + 1)), MOUSE_BUTTON_LEFT)
+	_check(state.grid.get_floor_type(Vector2i(10, row), 0) == CellTypes.FloorType.NONE and state.grid.get_floor_type(Vector2i(10, row + 1), 0) == CellTypes.FloorType.NONE, "la acera y la calle no admiten suelo")
+	_check(state.ledger.balance == balance, "y no cuestan nada")
+	await _click_grid(_center(Vector2i(10, row - 3)), MOUSE_BUTTON_LEFT)
+	_check(state.grid.get_floor_type(Vector2i(10, row - 3), 0) == CellTypes.FloorType.BASIC, "el césped sí")
+	await _click_grid(_center(Vector2i(10, row - 3)), MOUSE_BUTTON_RIGHT)
+
+	# Una puerta a la calle: sobre la arista entre el césped y la acera, sí; entre la acera y la calle, no.
+	controller.set_tool(BuildController.Tool.ROOM)
+	var rect := Rect2i(Vector2i(8, row - 4), Vector2i(4, 3))
+	await _drag_grid([_center(rect.position), _center(rect.end - Vector2i.ONE)], MOUSE_BUTTON_LEFT)
+	_check(state.rooms.get_room_at(rect.position, 0) != null, "se construye una habitación sobre el césped")
+	var door: Edge = Edge.from_side(Vector2i(9, rect.end.y - 1), Edge.Side.SOUTH)
+	_check(state.build.place_door(door, 0), "con su puerta hacia la calle")
+	_check(not state.build.place_wall(Edge.from_side(Vector2i(9, row), Edge.Side.SOUTH), 0), "pero no se puede levantar una pared entre la acera y la calle")
+	await _frames(3)
+	_save_args(24)
+
+	# Limpieza.
+	await _drag_grid([_center(rect.position), _center(rect.end - Vector2i.ONE)], MOUSE_BUTTON_RIGHT)
+	controller.set_tool(BuildController.Tool.NONE)
+	state.build.demolish_room(rect, 0)
+	state.clock.set_speed(GameClock.Speed.X1)
+	camera.position = IsoProjection.grid_to_world(Vector2(state.grid.size) * 0.5)
+	await _frames(3)
+
+
 func _check_saves() -> void:
 	print("== partidas")
 	_clean_saves()
@@ -1181,3 +1241,14 @@ func _send_mouse_button(button: MouseButton, pressed: bool, screen_pos: Vector2,
 func _send_wheel(screen_pos: Vector2, button: MouseButton) -> void:
 	await _send_mouse_button(button, true, screen_pos)
 	await _send_mouse_button(button, false, screen_pos)
+
+
+func _wall_list(grid: GridMap2D) -> String:
+	var parts: Array[String] = []
+	for y in range(grid.size.y + 1):
+		for x in range(grid.size.x + 1):
+			for axis: Edge.Axis in [Edge.Axis.X, Edge.Axis.Y]:
+				var edge := Edge.new(Vector2i(x, y), axis)
+				if grid.is_edge_valid(edge, 0) and grid.has_wall(edge, 0):
+					parts.append("(%d,%d,%d)" % [x, y, axis])
+	return " ".join(parts)

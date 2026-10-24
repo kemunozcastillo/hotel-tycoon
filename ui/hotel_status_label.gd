@@ -1,7 +1,7 @@
 class_name HotelStatusLabel
 extends Label
-## Resumen del hotel (huéspedes, espera y dormitorios libres) o, si falta la entrada o la
-## recepción, un aviso de qué construir. Solo lee GameState.
+## Resumen del hotel (huéspedes, espera y dormitorios libres) o, si falta la recepción o no se
+## llega a ella desde la calle, un aviso de qué construir. Solo lee GameState.
 
 var _state: GameState
 var _level: int = 0
@@ -26,6 +26,7 @@ func _refresh() -> void:
 			_state.guests.get_waiting_count(_level),
 			bedrooms.x, bedrooms.y,
 			not _state.entrances.get_valid(_level).is_empty(),
-			_state.guests.has_operational_reception(_level))
+			_state.guests.has_operational_reception(_level),
+			_state.guests.is_reception_reachable(_level))
 	if new_text != text:
 		text = new_text

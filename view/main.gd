@@ -39,7 +39,7 @@ var _autosave_day: int = 0
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(BACKGROUND_COLOR)
-	state = GameState.new(GameState.DEFAULT_MAP_SIZE, null, EconomyRules.load_default())
+	state = GameState.new_hotel_game()
 	_build()
 
 

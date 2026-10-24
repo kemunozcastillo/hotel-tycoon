@@ -1,0 +1,28 @@
+{
+	"terrain_types": [
+		{
+			"id": "street",
+			"name": "Calle",
+			"color": "#555961",
+			"walkable": true,
+			"cost": 4.0,
+			"buildable": false
+		},
+		{
+			"id": "sidewalk",
+			"name": "Acera",
+			"color": "#b8b4a8",
+			"walkable": true,
+			"cost": 1.0,
+			"buildable": false
+		},
+		{
+			"id": "grass",
+			"name": "Césped",
+			"color": "#4f8f4a",
+			"walkable": true,
+			"cost": 1.4,
+			"buildable": true
+		}
+	]
+}

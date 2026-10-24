@@ -6,6 +6,8 @@ extends RefCounted
 var size: Vector2i
 
 var _floor: PackedByteArray
+# Índice (TerrainCatalog) del terreno de cada celda, bajo el suelo construido.
+var _terrain: PackedByteArray
 # Tipo (CellTypes.EdgeType) de las aristas norte (Axis.X) y oeste (Axis.Y). Tamaño
 # (ancho+1) x (alto+1) para poder cerrar el borde sur y este del mapa.
 var _edges_x: PackedByteArray
@@ -15,6 +17,7 @@ var _edges_y: PackedByteArray
 func _init(p_size: Vector2i) -> void:
 	size = p_size
 	_floor.resize(size.x * size.y)
+	_terrain.resize(size.x * size.y)
 	_edges_x.resize((size.x + 1) * (size.y + 1))
 	_edges_y.resize((size.x + 1) * (size.y + 1))
 
@@ -50,6 +53,24 @@ func set_floor_type(cell: Vector2i, type: CellTypes.FloorType) -> bool:
 	return true
 
 
+## Índice del terreno de la celda (0 = sin terreno).
+func get_terrain(cell: Vector2i) -> int:
+	if not in_bounds_cell(cell):
+		return 0
+	return _terrain[cell.y * size.x + cell.x]
+
+
+## Devuelve true si el valor cambió.
+func set_terrain(cell: Vector2i, index: int) -> bool:
+	if not in_bounds_cell(cell) or index < 0 or index > 255:
+		return false
+	var cell_index: int = cell.y * size.x + cell.x
+	if _terrain[cell_index] == index:
+		return false
+	_terrain[cell_index] = index
+	return true
+
+
 func get_edge_type(edge: Edge) -> CellTypes.EdgeType:
 	if not in_bounds_edge(edge):
 		return CellTypes.EdgeType.NONE
@@ -81,24 +102,36 @@ func _edge_index(edge: Edge) -> int:
 
 # --- Guardado -----------------------------------------------------------------------------------
 
-## Los tres arrays de bytes, en base64.
+## Los arrays de bytes, en base64. El terreno va como índices del catálogo (GridMap2D guarda la
+## paleta que los explica).
 func serialize() -> Dictionary:
 	return {
 		"floor": Marshalls.raw_to_base64(_floor),
+		"terrain": Marshalls.raw_to_base64(_terrain),
 		"edges_x": Marshalls.raw_to_base64(_edges_x),
 		"edges_y": Marshalls.raw_to_base64(_edges_y),
 	}
 
 
 ## Sustituye el contenido por el guardado. Si algo no cuadra (tamaño o valores fuera de rango),
-## anota el error y no cambia nada.
-func restore(data: Dictionary, reader: SaveReader, where: String) -> void:
+## anota el error y no cambia nada. `terrain_remap` traduce cada índice de terreno guardado al del
+## catálogo actual (según la paleta del archivo); vacío = el archivo no trae terreno (versión 1) y
+## queda todo sin terreno.
+func restore(data: Dictionary, reader: SaveReader, where: String, terrain_remap: PackedByteArray = PackedByteArray()) -> void:
 	var floor_bytes: PackedByteArray = _read_bytes(data, "floor", where, _floor.size(), CellTypes.FloorType.size(), reader)
 	var edges_x: PackedByteArray = _read_bytes(data, "edges_x", where, _edges_x.size(), CellTypes.EdgeType.size(), reader)
 	var edges_y: PackedByteArray = _read_bytes(data, "edges_y", where, _edges_y.size(), CellTypes.EdgeType.size(), reader)
+	var terrain_bytes := PackedByteArray()
+	terrain_bytes.resize(_terrain.size())
+	if not terrain_remap.is_empty():
+		var saved: PackedByteArray = _read_bytes(data, "terrain", where, _terrain.size(), terrain_remap.size(), reader)
+		if reader.is_ok():
+			for i in range(saved.size()):
+				terrain_bytes[i] = terrain_remap[saved[i]]
 	if not reader.is_ok():
 		return
 	_floor = floor_bytes
+	_terrain = terrain_bytes
 	_edges_x = edges_x
 	_edges_y = edges_y
 

@@ -69,6 +69,12 @@ var _dirty_lines: Dictionary = {} # id de recepción -> true
 # Hay que reintentar la asignación de los que esperan habitación (algo cambió).
 var _assign_dirty: bool = true
 var _seen_revision: int = -1
+# Si alguna recepción operativa se alcanza desde una entrada; se recalcula solo cuando cambia el
+# mapa, las habitaciones o las entradas (no es estado de la partida: se deduce de ellos).
+var _reachable_value: bool = false
+var _reachable_level: int = 0
+var _reachable_revision: int = -1
+var _reachable_dirty: bool = true
 
 
 func _init(grid: GridMap2D, agents: AgentRegistry, rooms: RoomRegistry, entrances: EntrancePoints) -> void:
@@ -83,6 +89,7 @@ func _init(grid: GridMap2D, agents: AgentRegistry, rooms: RoomRegistry, entrance
 	rooms.room_removed.connect(_on_rooms_changed)
 	rooms.room_type_changed.connect(_on_rooms_changed)
 	occupancy.occupancy_changed.connect(_mark_assignment_dirty)
+	entrances.entrances_changed.connect(_mark_reachable_dirty)
 
 
 ## Fija la semilla del azar (para pruebas reproducibles).
@@ -128,6 +135,22 @@ func has_operational_reception(level: int) -> bool:
 		if room.type_id == RECEPTION_TYPE and _rooms.get_status(room).is_operational():
 			return true
 	return false
+
+
+## true si algún huésped que llegue por una entrada válida podría llegar a una recepción operativa
+## (es decir, hay camino de la calle a la recepción, por una puerta). Se guarda el resultado hasta
+## que cambie el mapa, las habitaciones o las entradas.
+func is_reception_reachable(level: int) -> bool:
+	if _reachable_dirty or _reachable_revision != _grid.revision or _reachable_level != level:
+		_reachable_dirty = false
+		_reachable_revision = _grid.revision
+		_reachable_level = level
+		_reachable_value = false
+		for entrance: Vector2i in _entrances.get_valid(level):
+			if _pick_reception(entrance, level) != null:
+				_reachable_value = true
+				break
+	return _reachable_value
 
 
 ## Dormitorios operativos del nivel y cuántos de ellos están libres.
@@ -267,6 +290,11 @@ func _finish_check_in(guest: Guest) -> void:
 
 func _on_rooms_changed(_room: Room) -> void:
 	_assign_dirty = true
+	_reachable_dirty = true
+
+
+func _mark_reachable_dirty() -> void:
+	_reachable_dirty = true
 
 
 func _mark_assignment_dirty() -> void:

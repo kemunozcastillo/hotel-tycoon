@@ -96,3 +96,23 @@ func take_for_building(kind: BuildItem.Kind) -> int:
 
 func _index(kind: BuildItem.Kind, condition: BuildItem.Condition) -> int:
 	return kind * BuildItem.CONDITION_COUNT + condition
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+func serialize() -> Dictionary:
+	var stock: Array = []
+	for amount: int in _stock:
+		stock.append(amount)
+	return {"stock": stock, "removal_mode": removal_mode}
+
+
+func restore(data: Dictionary, reader: SaveReader) -> void:
+	var stock: Array = reader.read_array(data, "stock", "inventario")
+	if stock.size() != _stock.size():
+		reader.fail("inventario: 'stock' debe tener %d cifras" % _stock.size())
+	else:
+		for i in range(stock.size()):
+			_stock[i] = reader.as_int(stock[i], "inventario.stock[%d]" % i, 0, BuildItem.MAX_STOCK)
+	removal_mode = reader.read_enum(data, "removal_mode", "inventario", RemovalMode.size()) as RemovalMode
+	stock_changed.emit()

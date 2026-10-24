@@ -4,6 +4,8 @@ extends SceneTree
 ## Inyecta eventos de ratón/teclado en la escena principal y comprueba cámara, cursor y
 ## construcción de extremo a extremo. Imprime OK / FALLO por cada comprobación.
 
+const TEST_SAVE_DIR: String = "user://test_saves"
+
 var _main: Node
 var _failures: int = 0
 
@@ -11,6 +13,7 @@ var _failures: int = 0
 func _initialize() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	_main = load("res://view/main.tscn").instantiate()
+	_main.save_directory = TEST_SAVE_DIR # las pruebas no tocan las partidas del jugador
 	root.add_child(_main)
 	await _frames(2)
 	# Construir cuesta dinero: las comprobaciones largas parten de mucho saldo. Las de economía
@@ -27,6 +30,7 @@ func _initialize() -> void:
 	await _check_wall_modes()
 	await _check_economy()
 	await _check_inventory()
+	await _check_saves()
 	await _check_clock()
 
 	# Capturas del resaltado: modo celda (args[0]) y modo arista (args[1]).
@@ -36,6 +40,7 @@ func _initialize() -> void:
 	_main.cursor.edge_mode = true
 	await _move_mouse_to_grid(Vector2(14.5, 12.08))
 	_save(args, 2)
+	_clean_saves()
 	print("")
 	print("%d fallos" % _failures)
 	quit(1 if _failures > 0 else 0)
@@ -946,7 +951,7 @@ func _check_clock() -> void:
 	var started: float = clock.total_minutes
 	await _frames(20)
 	_check(clock.total_minutes > started, "el reloj avanza con el tiempo real")
-	_check(label.text.contains("Día 1") and label.text.contains("[x1]"), "la etiqueta muestra día y velocidad: '%s'" % label.text)
+	_check(label.text.contains("Día %d" % clock.get_day()) and label.text.contains("[x1]"), "la etiqueta muestra día y velocidad: '%s'" % label.text)
 
 	await _press_key(KEY_SPACE)
 	_check(clock.is_paused() and label.text.contains("[Pausa]"), "Espacio pausa: '%s'" % label.text)
@@ -965,14 +970,121 @@ func _check_clock() -> void:
 	_check(clock.speed == GameClock.Speed.X1, "pausar y reanudar vuelve a la velocidad anterior")
 
 
-func _press_key(keycode: Key) -> void:
+func _check_saves() -> void:
+	print("== partidas")
+	_clean_saves()
+	var state: GameState = _main.state
+	var toolbar: BuildToolbar = _main.toolbar
+	var camera: IsoCamera = _main.camera
+	var away := Vector2(40.0, 400.0) # un punto sin nada, para que el cursor no tape las celdas
+	state.clock.set_speed(GameClock.Speed.PAUSED)
+	camera.position = IsoProjection.grid_to_world(Vector2(22, 22))
+	await _frames(4)
+
+	# Algo reconocible que guardar: un suelo, piezas en el inventario y un saldo.
+	await _click_button(toolbar.get_tool_button(BuildController.Tool.FLOOR))
+	await _click_grid(_center(Vector2i(20, 20)), MOUSE_BUTTON_LEFT)
+	_main.build_controller.set_tool(BuildController.Tool.NONE)
+	state.inventory.add(BuildItem.Kind.WALL, BuildItem.Condition.USED, 4)
+	var saved_balance: int = state.ledger.balance
+	var saved_camera: Vector2 = camera.position
+	_check(not SaveGame.has_slot(SaveGame.MANUAL_SLOT, TEST_SAVE_DIR), "todavía no hay partida guardada")
+	await _press_key(KEY_F5)
+	_check(SaveGame.has_slot(SaveGame.MANUAL_SLOT, TEST_SAVE_DIR), "F5 guarda la partida")
+	_check(_main.notice_label.visible and _main.notice_label.text == "Partida guardada", "y avisa: '%s'" % _main.notice_label.text)
+
+	# Cambios posteriores que cargar tiene que deshacer.
+	_main.build_controller.set_tool(BuildController.Tool.FLOOR)
+	await _click_grid(_center(Vector2i(21, 20)), MOUSE_BUTTON_LEFT)
+	_main.build_controller.set_tool(BuildController.Tool.NONE)
+	state.ledger.record(Ledger.Category.UPKEEP, -123, "cambio posterior")
+	state.inventory.add(BuildItem.Kind.DOOR, BuildItem.Condition.NEW, 2)
+	await _send_mouse_motion(away)
+	await _frames(3)
+	var before: Image = root.get_texture().get_image()
+	var empty_pixel: Color = _pixel_at_cell(before, Vector2i(26, 20))
+	_check(not _close(_pixel_at_cell(before, Vector2i(21, 20)), empty_pixel), "antes de cargar se ve el segundo suelo")
+
+	await _press_key(KEY_F9)
+	var loaded: GameState = _main.state
+	_check(loaded != state, "F9 sustituye la partida por la guardada")
+	_check(loaded.ledger.balance == saved_balance, "el saldo vuelve a %d (%d)" % [saved_balance, loaded.ledger.balance])
+	_check(loaded.grid.get_floor_type(Vector2i(20, 20), 0) == CellTypes.FloorType.BASIC, "el primer suelo está")
+	_check(loaded.grid.get_floor_type(Vector2i(21, 20), 0) == CellTypes.FloorType.NONE, "el segundo suelo ya no")
+	_check(loaded.inventory.total_items() == 4, "el inventario vuelve a tener 4 piezas (%d)" % loaded.inventory.total_items())
+	_check(_main.money_button.text.contains(MoneyTexts.format(saved_balance)), "el saldo en pantalla se actualiza: '%s'" % _main.money_button.text)
+	_check(_main.notice_label.visible and _main.notice_label.text == "Partida cargada", "avisa: '%s'" % _main.notice_label.text)
+	_check(_main.camera.position.is_equal_approx(saved_camera), "la cámara se conserva")
+	await _send_mouse_motion(away)
+	await _frames(4)
+	var after: Image = root.get_texture().get_image()
+	_check(_close(_pixel_at_cell(after, Vector2i(21, 20)), empty_pixel), "en pantalla ya no se ve el segundo suelo")
+	_check(not _close(_pixel_at_cell(after, Vector2i(20, 20)), empty_pixel), "y sí el primero")
+	_save_args(23)
+
+	# La partida cargada sigue funcionando: el reloj corre y se puede construir.
+	loaded.clock.set_speed(GameClock.Speed.X1)
+	var minutes: float = loaded.clock.total_minutes
+	await _frames(10)
+	_check(loaded.clock.total_minutes > minutes, "el reloj de la partida cargada avanza")
+	loaded.clock.set_speed(GameClock.Speed.PAUSED)
+	await _click_button(_main.toolbar.get_tool_button(BuildController.Tool.FLOOR))
+	await _click_grid(_center(Vector2i(21, 20)), MOUSE_BUTTON_LEFT)
+	_check(loaded.grid.get_floor_type(Vector2i(21, 20), 0) == CellTypes.FloorType.BASIC, "se puede construir con la vista nueva")
+	_main.build_controller.set_tool(BuildController.Tool.NONE)
+
+	# Sin autoguardado, Mayús+F9 avisa y no cambia nada.
+	await _press_key(KEY_F9, true)
+	_check(_main.state == loaded and _main.notice_label.text.begins_with("No se pudo cargar"), "sin autoguardado no carga: '%s'" % _main.notice_label.text)
+
+	# Un archivo roto tampoco cambia nada.
+	var file: FileAccess = FileAccess.open(SaveGame.slot_path(SaveGame.MANUAL_SLOT, TEST_SAVE_DIR), FileAccess.WRITE)
+	file.store_string("{ esto está roto")
+	file.close()
+	var balance_now: int = loaded.ledger.balance
+	await _press_key(KEY_F9)
+	_check(_main.state == loaded and loaded.ledger.balance == balance_now, "un archivo roto no estropea la partida")
+	_check(_main.notice_label.text.begins_with("No se pudo cargar"), "y lo dice: '%s'" % _main.notice_label.text)
+
+	# Autoguardado al empezar un día.
+	_check(not SaveGame.has_slot(SaveGame.AUTO_SLOT, TEST_SAVE_DIR), "todavía no hay autoguardado")
+	loaded.clock.total_minutes += 1440.0
+	await _frames(3)
+	_check(SaveGame.has_slot(SaveGame.AUTO_SLOT, TEST_SAVE_DIR), "al empezar un día se autoguarda")
+	var auto_balance: int = loaded.ledger.balance
+	loaded.ledger.record(Ledger.Category.UPKEEP, -50, "cambio posterior")
+	await _press_key(KEY_F9, true)
+	_check(_main.state != loaded and _main.state.ledger.balance == auto_balance, "Mayús+F9 carga el autoguardado")
+	_check(_main.notice_label.text == "Autoguardado cargado", "y avisa: '%s'" % _main.notice_label.text)
+
+	# Limpieza.
+	_clean_saves()
+	_main.state.clock.set_speed(GameClock.Speed.X1)
+	_main.camera.position = IsoProjection.grid_to_world(Vector2(_main.state.grid.size) * 0.5)
+	await _frames(3)
+
+
+func _clean_saves() -> void:
+	if DirAccess.dir_exists_absolute(TEST_SAVE_DIR):
+		for file_name: String in DirAccess.get_files_at(TEST_SAVE_DIR):
+			DirAccess.remove_absolute(TEST_SAVE_DIR + "/" + file_name)
+		DirAccess.remove_absolute(TEST_SAVE_DIR)
+
+
+func _pixel_at_cell(image: Image, cell: Vector2i) -> Color:
+	return image.get_pixelv(Vector2i(_screen_of_grid(Vector2(cell) + Vector2(0.5, 0.5))))
+
+
+func _press_key(keycode: Key, shift: bool = false) -> void:
 	var event := InputEventKey.new()
 	event.keycode = keycode
+	event.shift_pressed = shift
 	event.pressed = true
 	Input.parse_input_event(event)
 	await _frames(2)
 	event = InputEventKey.new()
 	event.keycode = keycode
+	event.shift_pressed = shift
 	event.pressed = false
 	Input.parse_input_event(event)
 	await _frames(1)

@@ -56,3 +56,33 @@ func get_valid(level: int) -> Array[Vector2i]:
 		if _grid.is_walkable(cell, level):
 			valid.append(cell)
 	return valid
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+func serialize() -> Dictionary:
+	var levels: Dictionary = {}
+	for level: int in _cells.keys():
+		levels[str(level)] = SaveReader.vec2i_list_data(_cells[level] as Array[Vector2i])
+	return {"levels": levels}
+
+
+func restore(data: Dictionary, reader: SaveReader) -> void:
+	_cells.clear()
+	var levels: Dictionary = reader.read_dict(data, "levels", "entradas")
+	for key: Variant in levels.keys():
+		if typeof(key) != TYPE_STRING or not (key as String).is_valid_int():
+			reader.fail("entradas: nivel inválido '%s'" % str(key))
+			continue
+		var level: int = (key as String).to_int()
+		var raw: Variant = levels[key]
+		if typeof(raw) != TYPE_ARRAY:
+			reader.fail("entradas[%d] debe ser una lista" % level)
+			continue
+		var list: Array[Vector2i] = []
+		for i in range((raw as Array).size()):
+			var cell: Vector2i = reader.as_vec2i((raw as Array)[i], "entradas[%d][%d]" % [level, i])
+			if _grid.in_bounds(cell) and not list.has(cell):
+				list.append(cell)
+		_cells[level] = list
+	entrances_changed.emit()

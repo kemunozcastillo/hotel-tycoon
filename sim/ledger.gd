@@ -17,6 +17,8 @@ enum Category {
 const CATEGORY_COUNT: int = 6
 ## Cuántos movimientos recientes se conservan (los totales por día se conservan todos).
 const MAX_TRANSACTIONS: int = 300
+## Cota de cordura para los importes al cargar una partida.
+const BIG_AMOUNT: int = 1000000000000
 
 ## El saldo cambió.
 signal balance_changed(balance: int)
@@ -109,3 +111,53 @@ func get_recent(count: int) -> Array[Dictionary]:
 	for i in range(_transactions.size() - 1, maxi(_transactions.size() - 1 - count, -1), -1):
 		result.append(_transactions[i])
 	return result
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+func serialize() -> Dictionary:
+	var days: Dictionary = {}
+	for day: int in _days.keys():
+		var totals: Array = []
+		for total: int in (_days[day] as PackedInt64Array):
+			totals.append(total)
+		days[str(day)] = totals
+	var transactions: Array = []
+	for transaction in _transactions:
+		var row: Dictionary = transaction.duplicate()
+		row["minute"] = SaveReader.float_data(transaction["minute"])
+		transactions.append(row)
+	return {"balance": balance, "transactions": transactions, "days": days}
+
+
+func restore(data: Dictionary, reader: SaveReader) -> void:
+	balance = reader.read_int(data, "balance", "libro", -BIG_AMOUNT, BIG_AMOUNT)
+	_transactions.clear()
+	var transactions: Array = reader.read_array(data, "transactions", "libro")
+	for i in range(transactions.size()):
+		var where: String = "libro.transactions[%d]" % i
+		var raw: Dictionary = reader.as_dict(transactions[i], where)
+		if raw.is_empty():
+			continue
+		_transactions.append({
+			"day": reader.read_int(raw, "day", where, 1),
+			"minute": reader.read_float(raw, "minute", where, 0.0),
+			"category": reader.read_enum(raw, "category", where, CATEGORY_COUNT),
+			"amount": reader.read_int(raw, "amount", where, -BIG_AMOUNT, BIG_AMOUNT),
+			"note": reader.read_string(raw, "note", where),
+		})
+	_days.clear()
+	var days: Dictionary = reader.read_dict(data, "days", "libro")
+	for key: Variant in days.keys():
+		if typeof(key) != TYPE_STRING or not (key as String).is_valid_int() or (key as String).to_int() < 1:
+			reader.fail("libro.days: día inválido '%s'" % str(key))
+			continue
+		var totals_raw: Variant = days[key]
+		if typeof(totals_raw) != TYPE_ARRAY or (totals_raw as Array).size() != CATEGORY_COUNT:
+			reader.fail("libro.days[%s] debe tener %d totales" % [str(key), CATEGORY_COUNT])
+			continue
+		var totals := PackedInt64Array()
+		totals.resize(CATEGORY_COUNT)
+		for i in range(CATEGORY_COUNT):
+			totals[i] = reader.as_int((totals_raw as Array)[i], "libro.days[%s][%d]" % [str(key), i], -BIG_AMOUNT, BIG_AMOUNT)
+		_days[(key as String).to_int()] = totals

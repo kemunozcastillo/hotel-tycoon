@@ -30,12 +30,22 @@ var finance_panel: FinancePanel
 var notice_label: NoticeLabel
 var removal_mode_bar: RemovalModeBar
 var inventory_panel: InventoryPanel
+## Dónde se guardan las partidas (las pruebas lo cambian para no tocar las del jugador).
+var save_directory: String = SaveGame.SAVE_DIR
+## Si se guarda sola, en la ranura de autoguardado, al empezar cada día de juego.
+var autosave_enabled: bool = true
+var _autosave_day: int = 0
 
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(BACKGROUND_COLOR)
 	state = GameState.new(GameState.DEFAULT_MAP_SIZE, null, EconomyRules.load_default())
+	_build()
 
+
+## Crea todo lo visual (y sus conexiones) a partir de `state`. Se llama al empezar y al cargar una
+## partida, que sustituye a `state` y lo reconstruye todo (la vista no guarda estado de juego).
+func _build() -> void:
 	level_view = LevelView.new()
 	add_child(level_view)
 	level_view.setup(state.grid, LEVEL)
@@ -133,6 +143,7 @@ func _ready() -> void:
 	wall_mode_bar.setup(level_view.get_wall_mode())
 	wall_mode_bar.mode_selected.connect(level_view.set_wall_mode)
 	level_view.wall_mode_changed.connect(wall_mode_bar.set_mode)
+	_autosave_day = state.clock.get_day()
 
 	removal_mode_bar = RemovalModeBar.new()
 	hud.add_child(removal_mode_bar)
@@ -147,6 +158,48 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	state.tick(delta)
+	var day: int = state.clock.get_day()
+	if day != _autosave_day:
+		_autosave_day = day
+		if autosave_enabled:
+			var error: String = SaveGame.save_slot(state, SaveGame.AUTO_SLOT, save_directory)
+			if not error.is_empty():
+				notice_label.show_notice("No se pudo autoguardar: %s" % error)
+
+
+## Guarda la partida en una ranura. Devuelve true si fue bien.
+func save_game(slot: StringName = SaveGame.MANUAL_SLOT) -> bool:
+	var error: String = SaveGame.save_slot(state, slot, save_directory)
+	if error.is_empty():
+		notice_label.show_notice("Partida guardada")
+		return true
+	notice_label.show_notice("No se pudo guardar: %s" % error)
+	return false
+
+
+## Carga una ranura: construye el estado aparte y, solo si es válido, sustituye al actual y rehace
+## la vista. Se conservan la cámara y el modo de paredes. Devuelve true si cargó.
+func load_game(slot: StringName = SaveGame.MANUAL_SLOT) -> bool:
+	var result: SaveGame.LoadResult = SaveGame.load_slot(slot, state.rules, state.room_types, save_directory)
+	if not result.is_ok():
+		notice_label.show_notice("No se pudo cargar: %s" % result.errors[0], 5.0)
+		return false
+	var camera_position: Vector2 = camera.position
+	var camera_zoom: Vector2 = camera.zoom
+	var wall_mode: WallViewMode.Mode = level_view.get_wall_mode()
+	for child in get_children():
+		remove_child(child)
+		child.queue_free()
+	state = result.state
+	_build()
+	camera.position = camera_position
+	camera.zoom = camera_zoom
+	level_view.set_wall_mode(wall_mode)
+	var message: String = "Partida cargada" if slot == SaveGame.MANUAL_SLOT else "Autoguardado cargado"
+	if not result.warnings.is_empty():
+		message += " (%s)" % result.warnings[0]
+	notice_label.show_notice(message)
+	return true
 
 
 func _on_removal_mode_selected(mode: Inventory.RemovalMode) -> void:
@@ -176,7 +229,8 @@ func _refresh_hovered_room() -> void:
 
 ## Atajos: Espacio pausa/reanuda el reloj; 1, 2 y 3 eligen la velocidad; C cambia el modo de
 ## visualización de las paredes; F abre y cierra las finanzas; I el inventario; V alterna entre
-## vender y guardar lo que se quita.
+## vender y guardar lo que se quita; F5 guarda la partida, F9 la carga y Mayús+F9 carga el
+## autoguardado.
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if key == null or not key.pressed or key.echo:
@@ -184,6 +238,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	match key.keycode:
 		KEY_F:
 			finance_panel.toggle()
+		KEY_F5:
+			save_game()
+		KEY_F9:
+			load_game(SaveGame.AUTO_SLOT if key.shift_pressed else SaveGame.MANUAL_SLOT)
 		KEY_I:
 			inventory_panel.toggle()
 		KEY_V:

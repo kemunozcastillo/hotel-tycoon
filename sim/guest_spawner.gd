@@ -45,3 +45,15 @@ func tick(game_minutes: float) -> void:
 
 func _schedule_next() -> void:
 	_minutes_left = rng.randf_range(MIN_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES)
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+func serialize() -> Dictionary:
+	return {"enabled": enabled, "minutes_left": SaveReader.float_data(_minutes_left), "rng": SaveReader.rng_data(rng)}
+
+
+func restore(data: Dictionary, reader: SaveReader) -> void:
+	enabled = reader.read_bool(data, "enabled", "llegadas")
+	_minutes_left = reader.read_float(data, "minutes_left", "llegadas", -1.0e9)
+	reader.read_rng(data, "rng", "llegadas", rng)

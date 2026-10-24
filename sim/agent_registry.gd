@@ -190,3 +190,59 @@ func _advance(agent: Agent, game_minutes: float) -> void:
 
 func _set_state(agent: Agent, new_state: Agent.State) -> void:
 	agent.state = new_state
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+func serialize() -> Dictionary:
+	var rows: Array = []
+	for agent in get_agents():
+		rows.append({
+			"id": agent.id, "level": agent.level,
+			"position": [SaveReader.float_data(agent.position.x), SaveReader.float_data(agent.position.y)],
+			"speed": SaveReader.float_data(agent.speed), "state": agent.state, "has_destination": agent.has_destination,
+			"destination": SaveReader.vec2i_data(agent.destination), "path": SaveReader.vec2i_list_data(agent.path),
+			"planned_revision": agent.planned_revision, "wanders": agent.wanders,
+		})
+	return {"next_id": _next_id, "agents": rows}
+
+
+## Sustituye a los agentes por los guardados. No emite `agent_added` (se usa sobre un estado recién
+## creado, antes de que exista la vista).
+func restore(data: Dictionary, reader: SaveReader) -> void:
+	_agents.clear()
+	var saved_next: int = reader.read_int(data, "next_id", "agentes", 1)
+	var rows: Array = reader.read_array(data, "agents", "agentes")
+	_next_id = saved_next
+	for i in range(rows.size()):
+		var where: String = "agentes.agents[%d]" % i
+		var row: Dictionary = reader.as_dict(rows[i], where)
+		if row.is_empty():
+			continue
+		var id: int = reader.read_int(row, "id", where, 1)
+		var level: int = reader.read_int(row, "level", where, -64, 64)
+		if _agents.has(id):
+			reader.fail("%s: el id %d está repetido" % [where, id])
+			continue
+		if not _grid.has_level(level):
+			reader.fail("%s: el nivel %d no existe" % [where, level])
+			continue
+		var position_raw: Variant = row.get("position")
+		if typeof(position_raw) != TYPE_ARRAY or (position_raw as Array).size() != 2:
+			reader.fail("%s: 'position' debe ser una pareja [x, y]" % where)
+			continue
+		var position := Vector2(
+			reader.as_float((position_raw as Array)[0], where + ".position[0]", 0.0, float(_grid.size.x)),
+			reader.as_float((position_raw as Array)[1], where + ".position[1]", 0.0, float(_grid.size.y)))
+		var agent := Agent.new(id, level, position)
+		agent.speed = reader.read_float(row, "speed", where, 0.0, 1000.0)
+		agent.state = reader.read_enum(row, "state", where, Agent.State.size()) as Agent.State
+		agent.has_destination = reader.read_bool(row, "has_destination", where)
+		agent.destination = reader.read_vec2i(row, "destination", where)
+		agent.planned_revision = reader.read_int(row, "planned_revision", where, -1)
+		agent.wanders = reader.read_bool(row, "wanders", where)
+		var path_raw: Array = reader.read_array(row, "path", where)
+		for j in range(path_raw.size()):
+			agent.path.append(reader.as_vec2i(path_raw[j], "%s.path[%d]" % [where, j]))
+		_agents[id] = agent
+		_next_id = maxi(_next_id, id + 1)

@@ -12,6 +12,8 @@ enum Condition { NEW, USED }
 
 const KIND_COUNT: int = 3
 const CONDITION_COUNT: int = 2
+## Cota de cordura para las existencias al cargar una partida.
+const MAX_STOCK: int = 1000000
 
 
 ## El tipo de pieza que corresponde a lo que hay sobre una arista (-1 si no hay nada).

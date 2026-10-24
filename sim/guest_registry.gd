@@ -522,3 +522,86 @@ func _set_state(guest: Guest, new_state: Guest.State) -> void:
 	guest.state = new_state
 	_dirty_lines[guest.reception_room_id] = true
 	guest_state_changed.emit(guest)
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+func serialize() -> Dictionary:
+	var rows: Array = []
+	for guest in get_guests():
+		rows.append({
+			"id": guest.id, "agent_id": guest.agent_id, "level": guest.level, "state": guest.state,
+			"ticket": guest.ticket, "entrance_cell": SaveReader.vec2i_data(guest.entrance_cell),
+			"reception_room_id": guest.reception_room_id, "room_id": guest.room_id,
+			"target_cell": SaveReader.vec2i_data(guest.target_cell), "has_target": guest.has_target,
+			"waited_minutes": SaveReader.float_data(guest.waited_minutes),
+			"blocked_minutes": SaveReader.float_data(guest.blocked_minutes),
+			"timer_minutes": SaveReader.float_data(guest.timer_minutes), "left_unhappy": guest.left_unhappy,
+			"stay_price": guest.stay_price, "deposit_paid": guest.deposit_paid, "stay_completed": guest.stay_completed,
+		})
+	var dirty: Array = _dirty_lines.keys()
+	dirty.sort()
+	return {
+		"guests": rows, "occupancy": occupancy.serialize(), "rng": SaveReader.rng_data(rng),
+		"next_id": _next_id, "next_ticket": _next_ticket, "total_arrived": total_arrived,
+		"total_checked_in": total_checked_in, "total_left_happy": total_left_happy,
+		"total_left_unhappy": total_left_unhappy, "dirty_lines": dirty,
+		"assign_dirty": _assign_dirty, "seen_revision": _seen_revision,
+	}
+
+
+## Sustituye a los huéspedes por los guardados (los agentes ya deben estar restaurados). No emite
+## señales: se usa sobre un estado recién creado.
+func restore(data: Dictionary, reader: SaveReader) -> void:
+	_guests.clear()
+	_by_agent.clear()
+	_dirty_lines.clear()
+	var rows: Array = reader.read_array(data, "guests", "huéspedes")
+	for i in range(rows.size()):
+		var where: String = "huéspedes.guests[%d]" % i
+		var row: Dictionary = reader.as_dict(rows[i], where)
+		if row.is_empty():
+			continue
+		var id: int = reader.read_int(row, "id", where, 1)
+		var agent_id: int = reader.read_int(row, "agent_id", where, 1)
+		var level: int = reader.read_int(row, "level", where, -64, 64)
+		if _guests.has(id) or _by_agent.has(agent_id):
+			reader.fail("%s: huésped o agente repetidos" % where)
+			continue
+		if _agents.get_agent(agent_id) == null:
+			reader.fail("%s: su agente %d no existe" % [where, agent_id])
+			continue
+		var guest := Guest.new(id, agent_id, level)
+		guest.state = reader.read_enum(row, "state", where, Guest.State.size()) as Guest.State
+		guest.ticket = reader.read_int(row, "ticket", where, 0)
+		guest.entrance_cell = reader.read_vec2i(row, "entrance_cell", where)
+		guest.reception_room_id = reader.read_int(row, "reception_room_id", where, 0)
+		guest.room_id = reader.read_int(row, "room_id", where, 0)
+		guest.target_cell = reader.read_vec2i(row, "target_cell", where)
+		guest.has_target = reader.read_bool(row, "has_target", where)
+		guest.waited_minutes = reader.read_float(row, "waited_minutes", where, 0.0)
+		guest.blocked_minutes = reader.read_float(row, "blocked_minutes", where, 0.0)
+		guest.timer_minutes = reader.read_float(row, "timer_minutes", where, -1.0e9)
+		guest.left_unhappy = reader.read_bool(row, "left_unhappy", where)
+		guest.stay_price = reader.read_int(row, "stay_price", where, 0)
+		guest.deposit_paid = reader.read_int(row, "deposit_paid", where, 0)
+		guest.stay_completed = reader.read_bool(row, "stay_completed", where)
+		_guests[id] = guest
+		_by_agent[agent_id] = id
+	occupancy.restore(reader.read_dict(data, "occupancy", "huéspedes"), reader)
+	for guest_id in occupancy.get_guest_ids():
+		if not _guests.has(guest_id):
+			reader.fail("huéspedes.occupancy: el huésped %d no existe" % guest_id)
+	reader.read_rng(data, "rng", "huéspedes", rng)
+	_next_id = reader.read_int(data, "next_id", "huéspedes", 1)
+	_next_ticket = reader.read_int(data, "next_ticket", "huéspedes", 1)
+	for id: int in _guests.keys():
+		_next_id = maxi(_next_id, id + 1)
+	total_arrived = reader.read_int(data, "total_arrived", "huéspedes", 0)
+	total_checked_in = reader.read_int(data, "total_checked_in", "huéspedes", 0)
+	total_left_happy = reader.read_int(data, "total_left_happy", "huéspedes", 0)
+	total_left_unhappy = reader.read_int(data, "total_left_unhappy", "huéspedes", 0)
+	for raw: Variant in reader.read_array(data, "dirty_lines", "huéspedes"):
+		_dirty_lines[reader.as_int(raw, "huéspedes.dirty_lines", 1)] = true
+	_assign_dirty = reader.read_bool(data, "assign_dirty", "huéspedes")
+	_seen_revision = reader.read_int(data, "seen_revision", "huéspedes", -1)

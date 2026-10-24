@@ -118,6 +118,24 @@ Referencias de género: Project Hospital y Prison Architect.
   estancia; si no la completa, se devuelve el anticipo (y al reasignarle otra habitación paga uno
   nuevo). Quien se va enfadado antes de tener habitación no paga. El mantenimiento diario de cada
   habitación con tipo se cobra al cambiar de día (`Economy.update` cobra cada día pendiente).
+- **Guardar y cargar** (`SaveGame`, `SaveReader`, `sim/`): un JSON legible en `user://saves/` con
+  `version` (hoy 1; subirla y añadir el paso en `SaveGame.migrate` si cambia el formato). Cada pieza
+  con estado tiene `serialize()` y `restore(data, reader)`: mapa (`GridMap2D`/`LevelLayer`, con su
+  `revision`, porque las rutas de los agentes se refieren a ella), habitaciones (solo id estable y
+  tipo, identificadas por una celda: el resto se deduce del mapa), piezas colocadas, libro de
+  cuentas, inventario, reloj, entradas, agentes, huéspedes (con `RoomOccupancy` y contadores),
+  llegadas, paseo y economía. **No se guarda** lo visual (cámara, herramienta, paneles) ni las
+  reglas/catálogo (se leen de `data/*.json`). Dos trampas del formato: los **decimales** se escriben
+  con `SaveReader.float_data` (8 bytes en hexadecimal) porque el lector de JSON de Godot falla en la
+  última cifra en ~2% de los casos, y las **semillas y estados de los generadores** (`rng_data`)
+  como texto porque JSON lee todos los números como decimales y perdería cifras de los enteros de
+  64 bits. Con eso, una partida cargada continúa exactamente igual que la original (hay un test que
+  lo comprueba comparando los archivos de ambas tras seguir jugando). `SaveGame.restore` construye
+  un `GameState` **nuevo** y nunca toca el actual: todo error de lectura (campo que falta, tipo
+  erróneo, rango, ids repetidos, huésped sin agente...) se acumula en `SaveReader.errors` y se
+  descarta la partida entera; un tipo de habitación que ya no existe solo da un aviso. El guardado
+  escribe un `.tmp` y lo renombra. Las funciones que tocan disco aceptan una carpeta (los tests usan
+  `user://test_saves`).
 - Convención de ejes de la cuadrícula: X crece hacia abajo-derecha en pantalla, Y hacia
   abajo-izquierda (rombo 2:1 de 64x32, `TileSet.TILE_LAYOUT_DIAMOND_DOWN`).
 
@@ -142,6 +160,7 @@ sim/     lógica pura: GridMap2D (niveles, suelo, paredes y puertas por arista),
          EntrancePoints, Guest / GuestRegistry / RoomOccupancy / GuestSpawner,
          EconomyRules / Ledger / BuildItem / PlacedPieces / Inventory / BuildOp / BuildQuote /
          Economy (dinero, costes, inventario y pagos), StorageCapacity (capacidad del almacén),
+         SaveGame / SaveReader (guardar y cargar la partida),
          GameClock, GameState (raíz de la simulación)
 view/    main.tscn/main.gd (escena principal), IsoProjection (única que conoce el rombo 64x32),
          TilesetFactory (arte provisional por código), LevelView (TileMapLayer), GridLines,
@@ -194,8 +213,9 @@ Código de salida 1 si algún test falla. Para añadir una suite: crear `tests/t
   check-in, alojamiento, paneles, salida), el modo corte de paredes (tecla C, botones, y la
   visibilidad de un agente por píxeles en los cuatro modos), el dinero (saldo, vista previa con
   coste, fondos insuficientes, demoler), el inventario (V, I, almacén y su capacidad, guardar,
-  reutilizar gratis, vender, derribar el almacén) y
-  reloj. Admite hasta veintitrés rutas de PNG tras `--` (en el orden en que las guarda cada
+  reutilizar gratis, vender, derribar el almacén), guardar y cargar (F5, F9, Mayús+F9, archivo roto,
+  autoguardado; usa `user://test_saves` vía `main.save_directory`) y
+  reloj. Admite hasta veinticuatro rutas de PNG tras `--` (en el orden en que las guarda cada
   comprobación; ver las llamadas `_save_args`). La escena real tiene economía activa, así que
   la comprobación del dinero fija un saldo de prueba y deja fondos de sobra al terminar para las
   demás.
@@ -297,4 +317,8 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
   alterna. `I` abre el inventario: capacidad, piezas nuevas y usadas con su valor y un botón para
   venderlas. Para guardar piezas hace falta una habitación **Almacén** operativa (botón Almacén de
   la barra); la vista previa avisa de las piezas que no caben y se venden.
+- Partida: `F5` guarda, `F9` carga (sustituye la partida actual sin pedir confirmación) y
+  `Mayús+F9` carga el autoguardado, que se escribe solo al empezar cada día de juego en otra ranura.
+  Al cargar se rehace toda la vista (`main.gd`: `_build()`) y se conservan la cámara y el modo de
+  paredes. Un archivo roto o inexistente avisa y no cambia nada.
 - Reloj: `Espacio` pausa, `1` / `2` / `3` velocidades.

@@ -94,3 +94,38 @@ func _stamp(key: Vector4i) -> void:
 	var record := Record.new()
 	record.placed_at = _clock.total_minutes
 	_records[key] = record
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+## Una fila por pieza: [nivel, x, y, código, momento en que se colocó, usada].
+func serialize() -> Dictionary:
+	var rows: Array = []
+	var keys: Array = _records.keys()
+	keys.sort_custom(func(a: Vector4i, b: Vector4i) -> bool:
+		return [a.x, a.y, a.z, a.w] < [b.x, b.y, b.z, b.w])
+	for key: Vector4i in keys:
+		var record: Record = _records[key] as Record
+		rows.append([key.x, key.y, key.z, key.w, SaveReader.float_data(record.placed_at), record.used])
+	return {"records": rows}
+
+
+func restore(data: Dictionary, reader: SaveReader) -> void:
+	_records.clear()
+	var rows: Array = reader.read_array(data, "records", "piezas")
+	for i in range(rows.size()):
+		var where: String = "piezas.records[%d]" % i
+		if typeof(rows[i]) != TYPE_ARRAY or (rows[i] as Array).size() != 6:
+			reader.fail("%s debe tener 6 valores" % where)
+			continue
+		var row: Array = rows[i] as Array
+		var record := Record.new()
+		record.placed_at = reader.as_float(row[4], where + "[4]")
+		if typeof(row[5]) != TYPE_BOOL:
+			reader.fail("%s[5] debe ser true o false" % where)
+			continue
+		record.used = row[5] as bool
+		var key := Vector4i(
+			reader.as_int(row[0], where + "[0]", -64, 64), reader.as_int(row[1], where + "[1]", 0, 4096),
+			reader.as_int(row[2], where + "[2]", 0, 4096), reader.as_int(row[3], where + "[3]", 0, 2))
+		_records[key] = record

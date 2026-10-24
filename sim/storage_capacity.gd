@@ -49,3 +49,9 @@ func _on_rooms_changed(_room: Room) -> void:
 	if now != _last:
 		_last = now
 		capacity_changed.emit(now)
+
+
+## Vuelve a tomar la capacidad actual como referencia (tras restaurar una partida), para que el
+## próximo cambio avise bien.
+func sync() -> void:
+	_last = get_capacity()

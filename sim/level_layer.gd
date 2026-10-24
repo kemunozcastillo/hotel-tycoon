@@ -77,3 +77,40 @@ func set_edge_type(edge: Edge, type: CellTypes.EdgeType) -> bool:
 
 func _edge_index(edge: Edge) -> int:
 	return edge.cell.y * (size.x + 1) + edge.cell.x
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+## Los tres arrays de bytes, en base64.
+func serialize() -> Dictionary:
+	return {
+		"floor": Marshalls.raw_to_base64(_floor),
+		"edges_x": Marshalls.raw_to_base64(_edges_x),
+		"edges_y": Marshalls.raw_to_base64(_edges_y),
+	}
+
+
+## Sustituye el contenido por el guardado. Si algo no cuadra (tamaño o valores fuera de rango),
+## anota el error y no cambia nada.
+func restore(data: Dictionary, reader: SaveReader, where: String) -> void:
+	var floor_bytes: PackedByteArray = _read_bytes(data, "floor", where, _floor.size(), CellTypes.FloorType.size(), reader)
+	var edges_x: PackedByteArray = _read_bytes(data, "edges_x", where, _edges_x.size(), CellTypes.EdgeType.size(), reader)
+	var edges_y: PackedByteArray = _read_bytes(data, "edges_y", where, _edges_y.size(), CellTypes.EdgeType.size(), reader)
+	if not reader.is_ok():
+		return
+	_floor = floor_bytes
+	_edges_x = edges_x
+	_edges_y = edges_y
+
+
+func _read_bytes(data: Dictionary, key: String, where: String, expected_size: int, value_count: int, reader: SaveReader) -> PackedByteArray:
+	var text: String = reader.read_string(data, key, where)
+	var bytes: PackedByteArray = Marshalls.base64_to_raw(text)
+	if bytes.size() != expected_size:
+		reader.fail("%s.%s: tiene %d bytes y se esperaban %d" % [where, key, bytes.size(), expected_size])
+		return PackedByteArray()
+	for value: int in bytes:
+		if value >= value_count:
+			reader.fail("%s.%s: contiene un valor inválido (%d)" % [where, key, value])
+			return PackedByteArray()
+	return bytes

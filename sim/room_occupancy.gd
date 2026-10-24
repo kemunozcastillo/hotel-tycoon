@@ -53,3 +53,40 @@ func get_occupied_room_ids() -> Array[int]:
 		ids.append(room_id)
 	ids.sort()
 	return ids
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+## Parejas [habitación, huésped].
+func serialize() -> Dictionary:
+	var pairs: Array = []
+	for room_id in get_occupied_room_ids():
+		pairs.append([room_id, _by_room[room_id]])
+	return {"pairs": pairs}
+
+
+func restore(data: Dictionary, reader: SaveReader) -> void:
+	_by_room.clear()
+	_by_guest.clear()
+	var pairs: Array = reader.read_array(data, "pairs", "ocupación")
+	for i in range(pairs.size()):
+		var where: String = "ocupación.pairs[%d]" % i
+		if typeof(pairs[i]) != TYPE_ARRAY or (pairs[i] as Array).size() != 2:
+			reader.fail("%s debe ser una pareja [habitación, huésped]" % where)
+			continue
+		var room_id: int = reader.as_int((pairs[i] as Array)[0], where + "[0]", 1)
+		var guest_id: int = reader.as_int((pairs[i] as Array)[1], where + "[1]", 1)
+		if _by_room.has(room_id) or _by_guest.has(guest_id):
+			reader.fail("%s: habitación o huésped repetidos" % where)
+			continue
+		_by_room[room_id] = guest_id
+		_by_guest[guest_id] = room_id
+
+
+## Los ids de huésped con habitación (para comprobar que existen al restaurar).
+func get_guest_ids() -> Array[int]:
+	var ids: Array[int] = []
+	for guest_id: int in _by_guest.keys():
+		ids.append(guest_id)
+	ids.sort()
+	return ids

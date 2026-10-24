@@ -182,3 +182,64 @@ func _compare_pairs(a: Array, b: Array) -> bool:
 	if a[2] != b[2]:
 		return a[2] < b[2]
 	return a[1] < b[1]
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+## Las habitaciones son un dato derivado del mapa; solo se guardan lo que no se deduce de él: el id
+## estable y el tipo de cada una (identificada por una celda suya) y el siguiente id libre.
+func serialize() -> Dictionary:
+	refresh()
+	var rows: Array = []
+	for level: int in _grid.get_levels():
+		for room: Room in get_rooms(level):
+			rows.append({
+				"id": room.id, "level": room.level, "anchor": SaveReader.vec2i_data(room.cells[0]),
+				"type_id": str(room.type_id),
+			})
+	return {"next_id": _next_id, "rooms": rows}
+
+
+## Recalcula las habitaciones del mapa ya restaurado y les devuelve su id y su tipo. No emite
+## señales (se usa sobre un estado recién creado). Un tipo que ya no existe se descarta con un aviso.
+func restore(data: Dictionary, reader: SaveReader) -> void:
+	var saved_next: int = reader.read_int(data, "next_id", "habitaciones", 1)
+	var rows: Array = reader.read_array(data, "rooms", "habitaciones")
+	var detected: Array[Room] = []
+	for level: int in _grid.get_levels():
+		detected.append_array(RoomDetector.detect(_grid, level))
+	var assigned: Dictionary = {} # índice detectado -> true
+	var used_ids: Dictionary = {}
+	_rooms.clear()
+	for i in range(rows.size()):
+		var where: String = "habitaciones.rooms[%d]" % i
+		var row: Dictionary = reader.as_dict(rows[i], where)
+		if row.is_empty():
+			continue
+		var id: int = reader.read_int(row, "id", where, 1)
+		var level: int = reader.read_int(row, "level", where, -64, 64)
+		var anchor: Vector2i = reader.read_vec2i(row, "anchor", where)
+		var type_id := StringName(reader.read_string(row, "type_id", where))
+		if used_ids.has(id):
+			reader.fail("%s: el id %d está repetido" % [where, id])
+			continue
+		for j in range(detected.size()):
+			if not assigned.has(j) and detected[j].level == level and detected[j].contains(anchor):
+				assigned[j] = true
+				used_ids[id] = true
+				detected[j].id = id
+				if type_id != &"" and not _catalog.has_type(type_id):
+					reader.warn("la habitación %d tenía el tipo '%s', que ya no existe" % [id, str(type_id)])
+					type_id = &""
+				detected[j].type_id = type_id
+				_rooms[id] = detected[j]
+				break
+	_next_id = maxi(saved_next, 1)
+	for id: int in used_ids.keys():
+		_next_id = maxi(_next_id, id + 1)
+	for j in range(detected.size()):
+		if not assigned.has(j): # un cambio que el archivo no recoge: id nuevo
+			detected[j].id = _next_id
+			_next_id += 1
+			_rooms[detected[j].id] = detected[j]
+	_dirty_levels.clear()

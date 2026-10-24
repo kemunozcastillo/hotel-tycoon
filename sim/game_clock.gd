@@ -75,3 +75,15 @@ func get_hour() -> int:
 
 func get_minute() -> int:
 	return floori(total_minutes) % MINUTES_PER_HOUR
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+func serialize() -> Dictionary:
+	return {"total_minutes": SaveReader.float_data(total_minutes), "speed": speed, "speed_before_pause": _speed_before_pause}
+
+
+func restore(data: Dictionary, reader: SaveReader) -> void:
+	total_minutes = reader.read_float(data, "total_minutes", "reloj", 0.0)
+	speed = reader.read_enum(data, "speed", "reloj", Speed.size()) as Speed
+	_speed_before_pause = reader.read_enum(data, "speed_before_pause", "reloj", Speed.size()) as Speed

@@ -66,3 +66,23 @@ func _start_walk(agent: Agent) -> void:
 
 func _on_agent_removed(agent: Agent) -> void:
 	_wait.erase(agent.id)
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+func serialize() -> Dictionary:
+	var waits: Dictionary = {}
+	for id: int in _wait.keys():
+		waits[str(id)] = SaveReader.float_data(_wait[id])
+	return {"wait": waits, "rng": SaveReader.rng_data(rng)}
+
+
+func restore(data: Dictionary, reader: SaveReader) -> void:
+	_wait.clear()
+	var waits: Dictionary = reader.read_dict(data, "wait", "paseo")
+	for key: Variant in waits.keys():
+		if typeof(key) != TYPE_STRING or not (key as String).is_valid_int():
+			reader.fail("paseo.wait: id inválido '%s'" % str(key))
+			continue
+		_wait[(key as String).to_int()] = reader.as_float(waits[key], "paseo.wait[%s]" % str(key), -1.0e9)
+	reader.read_rng(data, "rng", "paseo", rng)

@@ -119,3 +119,13 @@ func _refund_deposit(guest: Guest) -> void:
 	_ledger.record(Ledger.Category.DEPOSIT_REFUND, -guest.deposit_paid, "Devolución del anticipo del huésped %d" % guest.id)
 	guest.deposit_paid = 0
 	guest.stay_price = 0
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+func serialize() -> Dictionary:
+	return {"last_day": _last_day}
+
+
+func restore(data: Dictionary, reader: SaveReader) -> void:
+	_last_day = reader.read_int(data, "last_day", "economía", 1)

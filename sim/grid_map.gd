@@ -148,3 +148,41 @@ func is_room_boundary(a: Vector2i, b: Vector2i, level: int) -> bool:
 
 func _layer(level: int) -> LevelLayer:
 	return _levels[level] as LevelLayer
+
+
+# --- Guardado -----------------------------------------------------------------------------------
+
+func serialize() -> Dictionary:
+	var levels: Dictionary = {}
+	for level: int in get_levels():
+		levels[str(level)] = _layer(level).serialize()
+	return {"size": SaveReader.vec2i_data(size), "revision": revision, "levels": levels}
+
+
+## Rellena el mapa (que debe tener el mismo tamaño) con lo guardado. No emite señales de celdas o
+## aristas: se usa sobre un estado recién creado, antes de que nadie lo mire. La revisión se
+## restaura también, porque las rutas guardadas de los agentes se refieren a ella.
+func restore(data: Dictionary, reader: SaveReader) -> void:
+	var saved_size: Vector2i = reader.read_vec2i(data, "size", "mapa")
+	if saved_size != size:
+		reader.fail("mapa: el tamaño guardado %s no coincide con %s" % [str(saved_size), str(size)])
+		return
+	var saved_revision: int = reader.read_int(data, "revision", "mapa", 0)
+	var levels: Dictionary = reader.read_dict(data, "levels", "mapa")
+	if levels.is_empty():
+		reader.fail("mapa: no hay ningún nivel")
+		return
+	for key: Variant in levels.keys():
+		if typeof(key) != TYPE_STRING or not (key as String).is_valid_int():
+			reader.fail("mapa: nivel inválido '%s'" % str(key))
+			continue
+		var level: int = (key as String).to_int()
+		if absi(level) > 64:
+			reader.fail("mapa: nivel fuera de rango (%d)" % level)
+			continue
+		var layer_data: Dictionary = reader.as_dict(levels[key], "mapa.levels[%d]" % level)
+		if layer_data.is_empty():
+			continue
+		add_level(level)
+		_layer(level).restore(layer_data, reader, "mapa.levels[%d]" % level)
+	revision = saved_revision

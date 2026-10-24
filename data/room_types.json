@@ -34,6 +34,18 @@
 			"min_doors": 1,
 			"requires_complete_floor": true,
 			"daily_upkeep": 30
+		},
+		{
+			"id": "storage",
+			"name": "Almacén",
+			"color": "#a67c52",
+			"min_area": 4,
+			"max_area": 0,
+			"min_short_side": 2,
+			"min_doors": 1,
+			"requires_complete_floor": true,
+			"daily_upkeep": 15,
+			"storage_capacity_per_cell": 12
 		}
 	]
 }

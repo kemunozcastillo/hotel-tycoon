@@ -142,7 +142,7 @@ func _ready() -> void:
 
 	inventory_panel = InventoryPanel.new()
 	hud.add_child(inventory_panel)
-	inventory_panel.setup(state.inventory, state.economy, state.rules)
+	inventory_panel.setup(state.inventory, state.economy, state.rules, state.storage)
 
 
 func _process(delta: float) -> void:

@@ -200,11 +200,14 @@ func execute(ops: Array[BuildOp]) -> int:
 	var bought: PackedInt32Array = _zero_counts()
 	var sold: PackedInt32Array = _zero_counts()
 	var done: int = 0
+	# La capacidad se fija al empezar, como en el presupuesto: si la orden estropea un almacén (por
+	# ejemplo, al derribarlo), lo que se previó guardar se guarda igualmente.
+	var capacity: int = _inventory.get_capacity()
 	for op in ops:
 		# 1. Se retira la pieza antigua: se guarda o se vende.
 		if op.freed_kind >= 0:
 			var freed: BuildItem.Kind = op.freed_kind as BuildItem.Kind
-			if _inventory.removal_mode == Inventory.RemovalMode.STORE and _inventory.can_store(freed):
+			if _inventory.removal_mode == Inventory.RemovalMode.STORE and capacity > _inventory.total_items():
 				_inventory.add(freed, op.freed_condition)
 			else:
 				earned += _rules.sale_value(freed, op.freed_condition)

@@ -19,6 +19,7 @@ var entrances: EntrancePoints
 var guests: GuestRegistry
 var spawner: GuestSpawner
 var economy: Economy
+var storage: StorageCapacity
 
 
 ## `catalog` permite probar con otros tipos; por defecto se carga data/room_types.json.
@@ -41,6 +42,9 @@ func _init(map_size: Vector2i = DEFAULT_MAP_SIZE, catalog: RoomTypeCatalog = nul
 	guests = GuestRegistry.new(grid, agents, rooms, entrances)
 	spawner = GuestSpawner.new(guests)
 	economy = Economy.new(rules, ledger, inventory, rooms, room_types, grid, guests, clock)
+	storage = StorageCapacity.new(rooms, room_types, grid)
+	if rules.limited_storage:
+		inventory.capacity_provider = storage.get_capacity
 
 
 ## Avanza la simulación con el tiempo real transcurrido (en segundos).

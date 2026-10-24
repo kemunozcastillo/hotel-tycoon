@@ -13,7 +13,7 @@ func _wrap(entries: Array[String]) -> String:
 func test_default_file_loads_cleanly() -> void:
 	var catalog: RoomTypeCatalog = RoomTypeCatalog.load_default()
 	assert_eq(catalog.warnings, [] as Array[String], "sin avisos")
-	assert_eq(catalog.get_types().size(), 3)
+	assert_eq(catalog.get_types().size(), 4)
 	assert_true(catalog.has_type(&"bedroom"))
 	assert_true(catalog.has_type(&"bathroom"))
 	assert_true(catalog.has_type(&"reception"), "los huéspedes necesitan Recepción y Dormitorio")
@@ -48,6 +48,20 @@ func test_default_money_values_of_each_type() -> void:
 	assert_eq(reception.daily_upkeep, 30)
 
 
+func test_default_storage_type_and_capacity_field() -> void:
+	var catalog: RoomTypeCatalog = RoomTypeCatalog.load_default()
+	var storage: RoomType = catalog.get_type(&"storage")
+	assert_eq(storage.display_name, "Almacén")
+	assert_eq(storage.min_area, 4)
+	assert_eq(storage.max_area, 0)
+	assert_eq(storage.storage_capacity_per_cell, 12)
+	assert_eq(storage.daily_upkeep, 15)
+	assert_eq(catalog.get_type(&"bedroom").storage_capacity_per_cell, 0, "solo el almacén guarda piezas")
+	for extra: String in [', "storage_capacity_per_cell": -1', ', "storage_capacity_per_cell": 2.5']:
+		var broken: RoomTypeCatalog = RoomTypeCatalog.parse(_wrap(['{"id": "x", "name": "X"' + extra + '}']))
+		assert_eq(broken.get_types().size(), 0, "se rechaza %s" % extra)
+
+
 func test_money_fields_default_to_zero_and_must_be_non_negative_integers() -> void:
 	var plain: RoomTypeCatalog = RoomTypeCatalog.parse(_wrap(['{"id": "a", "name": "A"}']))
 	var type: RoomType = plain.get_type(&"a")
@@ -65,7 +79,7 @@ func test_types_keep_file_order_and_lookup_unknown_is_null() -> void:
 	var ids: Array[StringName] = []
 	for type: RoomType in catalog.get_types():
 		ids.append(type.id)
-	assert_eq(ids, [&"bedroom", &"bathroom", &"reception"] as Array[StringName])
+	assert_eq(ids, [&"bedroom", &"bathroom", &"reception", &"storage"] as Array[StringName])
 	assert_eq(catalog.get_type(&"spa"), null)
 	assert_false(catalog.has_type(&"spa"))
 
@@ -73,7 +87,7 @@ func test_types_keep_file_order_and_lookup_unknown_is_null() -> void:
 func test_get_types_returns_a_copy() -> void:
 	var catalog: RoomTypeCatalog = RoomTypeCatalog.load_default()
 	catalog.get_types().clear()
-	assert_eq(catalog.get_types().size(), 3)
+	assert_eq(catalog.get_types().size(), 4)
 
 
 func test_defaults_for_optional_fields() -> void:

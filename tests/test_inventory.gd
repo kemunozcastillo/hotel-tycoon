@@ -81,15 +81,19 @@ func test_removal_mode_defaults_to_selling_and_signals_only_on_change() -> void:
 
 func test_capacity_is_unlimited_until_a_provider_limits_it() -> void:
 	var inventory := Inventory.new()
-	assert_eq(inventory.capacity_left(FLOOR), Inventory.UNLIMITED)
-	assert_true(inventory.can_store(FLOOR, 100000))
-	# El almacén futuro: 10 suelos y nada más.
-	inventory.capacity_provider = func(kind: BuildItem.Kind) -> int: return 10 if kind == FLOOR else 0
-	assert_eq(inventory.capacity_left(FLOOR), 10)
+	assert_eq(inventory.capacity_left(), Inventory.UNLIMITED)
+	assert_true(inventory.can_store(100000))
+	# Un almacén de 10 piezas, compartidas por todos los tipos.
+	inventory.capacity_provider = func() -> int: return 10
+	assert_eq(inventory.get_capacity(), 10)
+	assert_eq(inventory.capacity_left(), 10)
 	inventory.add(FLOOR, USED, 4)
-	assert_eq(inventory.capacity_left(FLOOR), 6)
-	assert_true(inventory.can_store(FLOOR, 6))
-	assert_false(inventory.can_store(FLOOR, 7))
-	assert_false(inventory.can_store(WALL), "este tipo no tiene sitio")
+	assert_eq(inventory.capacity_left(), 6)
+	assert_true(inventory.can_store(6))
+	assert_false(inventory.can_store(7))
+	inventory.add(WALL, NEW, 6) # las paredes también ocupan del mismo fondo
+	assert_eq(inventory.capacity_left(), 0)
+	assert_false(inventory.can_store())
 	inventory.add(FLOOR, NEW, 20) # pasarse de capacidad no rompe nada: solo no deja guardar más
-	assert_eq(inventory.capacity_left(FLOOR), 0)
+	assert_eq(inventory.capacity_left(), 0)
+	assert_eq(inventory.total_items(), 30, "no se pierde ninguna pieza")

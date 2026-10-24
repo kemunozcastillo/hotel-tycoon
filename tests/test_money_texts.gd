@@ -67,6 +67,28 @@ func test_quote_text_for_selling_and_storing() -> void:
 	assert_eq(MoneyTexts.quote_text(storing), "2 al inventario")
 
 
+func test_quote_text_says_what_does_not_fit_in_the_storage() -> void:
+	var state := _state()
+	var rect := Rect2i(Vector2i(2, 2), Vector2i(2, 1))
+	state.build.fill_rect_floor(rect, 0)
+	state.inventory.removal_mode = Inventory.RemovalMode.STORE
+	state.inventory.capacity_provider = func() -> int: return 1
+	var quote: BuildQuote = state.build.quote(state.build.plan_clear_rect_floor(rect, 0))
+	assert_eq(quote.no_room, 1)
+	assert_eq(MoneyTexts.quote_text(quote), "+10 € · 1 al inventario · 1 no caben en el almacén (se venden)")
+	state.inventory.removal_mode = Inventory.RemovalMode.SELL
+	assert_eq(state.build.quote(state.build.plan_clear_rect_floor(rect, 0)).no_room, 0, "vender a propósito no es falta de sitio")
+
+
+func test_capacity_text() -> void:
+	assert_eq(MoneyTexts.capacity_text(5, Inventory.UNLIMITED), "")
+	assert_eq(MoneyTexts.capacity_text(34, 72), "Capacidad: 34 / 72")
+	assert_true(MoneyTexts.capacity_text(0, 0).contains("Sin almacén"))
+	var over: String = MoneyTexts.capacity_text(80, 72)
+	assert_true(over.contains("80 / 72") and over.contains("8 de más"), over)
+	assert_true(MoneyTexts.capacity_text(3, 0).contains("3 de más"), "con piezas y sin almacén también avisa")
+
+
 func test_quote_text_warns_when_there_is_no_money() -> void:
 	var state := _state(50)
 	var quote: BuildQuote = state.build.quote(state.build.plan_fill_rect_floor(Rect2i(Vector2i(1, 1), Vector2i(3, 3)), 0))

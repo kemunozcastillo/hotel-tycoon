@@ -203,7 +203,7 @@ func test_a_stored_then_reused_piece_never_gets_a_better_price_than_it_cost() ->
 func test_capacity_decides_what_fits_and_the_rest_is_sold() -> void:
 	var state := _state()
 	state.inventory.removal_mode = Inventory.RemovalMode.STORE
-	state.inventory.capacity_provider = func(kind: BuildItem.Kind) -> int: return 2 if kind == FLOOR else 0
+	state.inventory.capacity_provider = func() -> int: return 2
 	var rect := Rect2i(Vector2i(1, 1), Vector2i(5, 1))
 	state.build.fill_rect_floor(rect, 0) # -50
 	var budget: BuildQuote = state.build.quote(state.build.plan_clear_rect_floor(rect, 0))
@@ -215,7 +215,7 @@ func test_capacity_decides_what_fits_and_the_rest_is_sold() -> void:
 	assert_eq(state.ledger.balance, 1000 - 50 + 30, "las otras tres se venden")
 	state.build.place_wall(Edge.from_side(Vector2i(4, 4), Edge.Side.NORTH), 0)
 	state.build.remove_wall(Edge.from_side(Vector2i(4, 4), Edge.Side.NORTH), 0)
-	assert_eq(state.inventory.total(WALL), 0, "sin sitio para paredes, se venden")
+	assert_eq(state.inventory.total(WALL), 0, "el almacén está lleno de suelos: la pared se vende")
 
 
 # --- Formas de todo o nada ---------------------------------------------------------------------
@@ -338,7 +338,7 @@ func test_the_quote_always_matches_what_really_happens() -> void:
 	for round_index in range(5):
 		var state := _state(rng.randi_range(100, 700))
 		if round_index == 4:
-			state.inventory.capacity_provider = func(_kind: BuildItem.Kind) -> int: return 6
+			state.inventory.capacity_provider = func() -> int: return 6
 		for step in range(150):
 			_random_environment(state, rng)
 			var ops: Array[BuildOp] = _random_plan(state, rng)

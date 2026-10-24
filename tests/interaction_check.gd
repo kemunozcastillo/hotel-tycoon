@@ -824,8 +824,25 @@ func _check_inventory() -> void:
 	_check(inventory.removal_mode == Inventory.RemovalMode.STORE and bar.get_button(Inventory.RemovalMode.STORE).button_pressed, "y otra vez a Guardar")
 	_save_args(20)
 
-	# Quitar un suelo recién puesto en modo Guardar: no entra dinero y la pieza va al inventario.
+	# Sin almacén no cabe nada: en modo Guardar, la pieza quitada se vende.
 	await _click_button(toolbar.get_tool_button(BuildController.Tool.FLOOR))
+	await _click_grid(_center(Vector2i(20, 20)), MOUSE_BUTTON_LEFT)
+	var balance_before_sale: int = state.ledger.balance
+	await _click_grid(_center(Vector2i(20, 20)), MOUSE_BUTTON_RIGHT)
+	_check(inventory.total_items() == 0 and state.ledger.balance == balance_before_sale + 10, "sin almacén, Guardar vende la pieza")
+	await _press_key(KEY_I)
+	_check(panel.get_plain_text().contains("Sin almacén"), "el inventario avisa de que falta el almacén: '%s'" % panel.get_plain_text())
+	await _press_key(KEY_I)
+
+	# Un almacén 2x2 (con puerta y tipo) da 48 piezas.
+	var storage_rect := Rect2i(Vector2i(22, 22), Vector2i(2, 2))
+	state.build.build_room(storage_rect, 0)
+	state.build.place_door(Edge.from_side(storage_rect.position, Edge.Side.NORTH), 0)
+	state.rooms.set_room_type(state.rooms.get_room_at(storage_rect.position, 0).id, &"storage")
+	await _frames(3)
+	_check(state.storage.get_capacity() == 48, "el almacén da 48 piezas (%d)" % state.storage.get_capacity())
+
+	# Quitar un suelo recién puesto en modo Guardar: no entra dinero y la pieza va al inventario.
 	await _click_grid(_center(Vector2i(20, 20)), MOUSE_BUTTON_LEFT)
 	var balance_built: int = state.ledger.balance
 	await _click_grid(_center(Vector2i(20, 20)), MOUSE_BUTTON_RIGHT)
@@ -841,7 +858,7 @@ func _check_inventory() -> void:
 	# Panel de inventario (tecla I) y venta con su botón.
 	_check(not panel.is_open(), "el inventario empieza cerrado")
 	await _press_key(KEY_I)
-	_check(panel.is_open() and panel.get_plain_text().contains("Suelos nuevos ×1"), "la tecla I abre el inventario: '%s'" % panel.get_plain_text())
+	_check(panel.is_open() and panel.get_plain_text().contains("Suelos nuevos ×1") and panel.get_plain_text().contains("Capacidad: 1 / 48"), "la tecla I abre el inventario con su capacidad: '%s'" % panel.get_plain_text())
 	_save_args(21)
 	var sell_buttons: Array[Button] = panel.get_sell_buttons()
 	_check(sell_buttons.size() == 1, "hay un botón de vender por fila")
@@ -849,8 +866,21 @@ func _check_inventory() -> void:
 		await _click_button(sell_buttons[0])
 		_check(state.ledger.balance == balance_built + state.rules.sale_value(BuildItem.Kind.FLOOR, BuildItem.Condition.NEW), "vender entrega el valor de la pieza")
 		_check(inventory.total_items() == 0 and panel.get_plain_text().contains("Vacío"), "y el inventario queda vacío: '%s'" % panel.get_plain_text())
+	# Derribar el almacén en modo Guardar guarda sus propias piezas (la capacidad se toma al empezar la
+	# orden) y deja el inventario por encima de la capacidad: se conservan y el panel lo avisa.
+	_check(panel.is_open(), "el panel sigue abierto")
+	state.build.demolish_room(storage_rect, 0)
+	await _frames(3)
+	var kept: int = inventory.total_items()
+	_check(state.storage.get_capacity() == 0 and kept > 0, "sin almacén no hay capacidad y se conservan las piezas (%d)" % kept)
+	_check(panel.get_plain_text().contains("%d de más" % kept), "el panel avisa de las piezas de más: '%s'" % panel.get_plain_text())
+	_save_args(22)
 	await _press_key(KEY_I)
 	_check(not panel.is_open(), "la tecla I lo cierra")
+	for kind in range(BuildItem.KIND_COUNT):
+		for condition: BuildItem.Condition in [BuildItem.Condition.NEW, BuildItem.Condition.USED]:
+			state.economy.sell_stock(kind as BuildItem.Kind, condition, inventory.count(kind as BuildItem.Kind, condition))
+	_check(inventory.total_items() == 0, "se vende el resto para dejar el inventario limpio")
 
 	# Limpieza.
 	await _press_key(KEY_V)

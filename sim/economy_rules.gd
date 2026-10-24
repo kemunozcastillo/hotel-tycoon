@@ -27,6 +27,10 @@ var deposit_rate: float = 0.5
 ## Si es false, los huéspedes no pagan y las habitaciones no cuestan mantenimiento (lo usan las
 ## reglas sin costes). Construir ya cuesta lo que digan los precios.
 var charges_enabled: bool = true
+## Si es true, el inventario solo guarda lo que cabe en los almacenes operativos (sin almacén no
+## se guarda nada). Si es false, el inventario no tiene límite (lo usan los tests de otras fases;
+## el juego lo activa en data/economy.json).
+var limited_storage: bool = false
 
 ## Problemas encontrados al cargar (vacío si todo estaba bien).
 var warnings: Array[String] = []
@@ -86,6 +90,11 @@ static func parse(text: String) -> EconomyRules:
 	rules.sell_rate_used = rules._read_rate(data, "sell_rate_used", rules.sell_rate_used)
 	rules.deposit_rate = rules._read_rate(data, "deposit_rate", rules.deposit_rate)
 	rules.new_window_minutes = rules._read_minutes(data, "new_window_minutes", rules.new_window_minutes)
+	if data.has("limited_storage"):
+		if typeof(data["limited_storage"]) == TYPE_BOOL:
+			rules.limited_storage = data["limited_storage"] as bool
+		else:
+			rules.warnings.append("'limited_storage' debe ser true o false (se usa %s)" % rules.limited_storage)
 	if rules.sell_rate_used > rules.sell_rate_new:
 		rules.warnings.append("'sell_rate_used' (%s) no puede superar 'sell_rate_new' (%s): se iguala" % [rules.sell_rate_used, rules.sell_rate_new])
 		rules.sell_rate_used = rules.sell_rate_new

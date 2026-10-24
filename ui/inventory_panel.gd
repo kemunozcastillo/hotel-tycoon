@@ -13,7 +13,7 @@ var _content: VBoxContainer
 var _rows: Array[Dictionary] = []
 
 
-func setup(inventory: Inventory, economy: Economy, rules: EconomyRules) -> void:
+func setup(inventory: Inventory, economy: Economy, rules: EconomyRules, storage: StorageCapacity) -> void:
 	_inventory = inventory
 	_economy = economy
 	_rules = rules
@@ -35,6 +35,7 @@ func setup(inventory: Inventory, economy: Economy, rules: EconomyRules) -> void:
 	add_child(_content)
 	visible = false
 	inventory.stock_changed.connect(_on_stock_changed)
+	storage.capacity_changed.connect(_on_capacity_changed)
 
 
 func is_open() -> bool:
@@ -95,6 +96,11 @@ func _on_stock_changed() -> void:
 		_rebuild()
 
 
+func _on_capacity_changed(_capacity: int) -> void:
+	if visible:
+		_rebuild()
+
+
 func _rebuild() -> void:
 	for child in _content.get_children():
 		_content.remove_child(child)
@@ -105,6 +111,15 @@ func _rebuild() -> void:
 	title.text = "Inventario"
 	title.add_theme_font_size_override("font_size", 18)
 	_content.add_child(title)
+
+	var used: int = _inventory.total_items()
+	var capacity: int = _inventory.get_capacity()
+	var capacity_line: String = MoneyTexts.capacity_text(used, capacity)
+	if not capacity_line.is_empty():
+		var capacity_label := Label.new()
+		capacity_label.text = capacity_line
+		capacity_label.modulate = Color(1, 0.6, 0.45) if used > capacity or capacity == 0 else Color(1, 1, 1, 0.75)
+		_content.add_child(capacity_label)
 
 	if _rows.is_empty():
 		var empty := Label.new()

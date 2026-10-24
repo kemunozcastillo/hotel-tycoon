@@ -13,6 +13,16 @@ func test_default_file_loads_cleanly_with_the_documented_values() -> void:
 	assert_near(rules.sell_rate_used, 0.85)
 	assert_near(rules.new_window_minutes, 60.0)
 	assert_near(rules.deposit_rate, 0.5)
+	assert_true(rules.limited_storage, "el juego limita el inventario al almacén")
+
+
+func test_limited_storage_is_off_in_code_and_must_be_a_boolean() -> void:
+	assert_false(EconomyRules.new().limited_storage)
+	assert_false(EconomyRules.without_costs().limited_storage)
+	assert_true(EconomyRules.parse('{"limited_storage": true}').limited_storage)
+	var bad: EconomyRules = EconomyRules.parse('{"limited_storage": "si"}')
+	assert_eq(bad.warnings.size(), 1)
+	assert_false(bad.limited_storage)
 
 
 func test_free_rules_cost_nothing() -> void:

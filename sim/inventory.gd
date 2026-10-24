@@ -2,8 +2,7 @@ class_name Inventory
 extends RefCounted
 ## Las piezas guardadas (suelo, pared, puerta), contadas por tipo y por estado (nueva o usada).
 ## Al construir se usan primero las del inventario, así que salen gratis. Es global y sin límite
-## por ahora; más adelante la habitación almacén fijará la capacidad a través de
-## `capacity_provider`.
+## salvo que haya un `capacity_provider` (las habitaciones almacén).
 ##
 ## También guarda qué se hace con lo que se quita: venderlo (SELL) o guardarlo aquí (STORE).
 
@@ -24,8 +23,8 @@ var removal_mode: Inventory.RemovalMode = RemovalMode.SELL:
 			removal_mode = value
 			removal_mode_changed.emit(value)
 
-## Gancho para el almacén futuro: Callable(kind: BuildItem.Kind) -> int con cuántas piezas de ese
-## tipo caben en total. Vacío = sin límite.
+## Gancho del almacén: Callable() -> int con cuántas piezas caben en total (un fondo compartido
+## por todos los tipos de pieza; lo da `StorageCapacity`). Vacío = sin límite.
 var capacity_provider: Callable = Callable()
 
 var _stock: PackedInt32Array = PackedInt32Array()
@@ -51,15 +50,21 @@ func total_items() -> int:
 	return sum
 
 
-## Cuántas piezas más de ese tipo caben.
-func capacity_left(kind: BuildItem.Kind) -> int:
+## Cuántas piezas caben en total (UNLIMITED si no hay `capacity_provider`).
+func get_capacity() -> int:
 	if not capacity_provider.is_valid():
 		return UNLIMITED
-	return maxi(int(capacity_provider.call(kind)) - total(kind), 0)
+	return maxi(int(capacity_provider.call()), 0)
 
 
-func can_store(kind: BuildItem.Kind, amount: int = 1) -> bool:
-	return capacity_left(kind) >= amount
+## Cuántas piezas más caben, del tipo que sean. Con más existencias que capacidad (por ejemplo,
+## tras derribar el almacén) es 0: no se pierde nada, solo no se puede guardar más.
+func capacity_left() -> int:
+	return maxi(get_capacity() - total_items(), 0)
+
+
+func can_store(amount: int = 1) -> bool:
+	return capacity_left() >= amount
 
 
 func add(kind: BuildItem.Kind, condition: BuildItem.Condition, amount: int = 1) -> void:

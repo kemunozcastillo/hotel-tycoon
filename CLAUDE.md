@@ -98,11 +98,22 @@ Referencias de género: Project Hospital y Prison Architect.
   lista. Se usan primero las piezas del `Inventory` (gratis, las usadas antes). Nunca se gana dinero
   construyendo y vendiendo (el valor de venta es <= el precio y la marca de "usada" persiste).
 - **Piezas nuevas y usadas**: `PlacedPieces` anota cuándo se colocó cada pieza (por señales de la
-  cuadrícula). Una pieza es nueva si lleva menos de `new_window_minutes` y no salió del inventario;
-  si no, usada (lo desconocido también). Al quitar, `Inventory.removal_mode` decide: **SELL** (entra su
-  valor) o **STORE** (va al inventario con su estado; si `capacity_provider` dice que no cabe, se
-  vende). Inventario global y sin límite; el gancho `capacity_provider` es para la futura habitación
-  almacén. `Economy.sell_stock(tipo, estado, cantidad)` vende existencias.
+  cuadrícula). Una pieza es nueva si lleva menos de `new_window_minutes` colocada y no es una pieza
+  usada que salió del inventario; si no, usada (lo desconocido también). Una pieza nueva guardada y
+  recolocada cuenta como recién colocada. Al quitar, `Inventory.removal_mode` decide: **SELL** (entra
+  su valor) o **STORE** (va al inventario con su estado; lo que no cabe se vende). `Economy.sell_stock(
+  tipo, estado, cantidad)` vende existencias.
+- **Almacén**: el inventario es un **fondo compartido** de piezas (todos los tipos juntos).
+  `StorageCapacity` suma, sobre las habitaciones de tipo almacén **operativas**, su área por
+  `RoomType.storage_capacity_per_cell` (almacén: 12 por celda, mínimo 4 celdas y lado 2) y emite
+  `capacity_changed`. `GameState` la conecta a `Inventory.capacity_provider` (un `Callable() -> int`)
+  solo si `EconomyRules.limited_storage` es true (lo es en `data/economy.json`; por defecto en código
+  es false, como `without_costs()`, y entonces el inventario no tiene límite). Sin almacén operativo
+  no cabe nada y «Guardar» equivale a vender. Con más piezas que capacidad (almacén derribado) no se
+  pierde nada: solo no se guarda más. `BuildQuote` y `BuildCommands.execute` toman la capacidad **una
+  vez al empezar** la orden (derribar un almacén guarda lo previsto aunque desaparezca durante la
+  orden); `BuildQuote.no_room` cuenta lo que se vende por falta de sitio. Todavía no hace falta
+  llegar al almacén caminando ni hay personal que transporte nada.
 - **Pagos**: el huésped paga el 50% (`deposit_of`) al asignarle dormitorio y el resto al terminar la
   estancia; si no la completa, se devuelve el anticipo (y al reasignarle otra habitación paga uno
   nuevo). Quien se va enfadado antes de tener habitación no paga. El mantenimiento diario de cada
@@ -130,7 +141,7 @@ sim/     lógica pura: GridMap2D (niveles, suelo, paredes y puertas por arista),
          MinHeap, Pathfinder, Agent / AgentRegistry / WanderBehavior,
          EntrancePoints, Guest / GuestRegistry / RoomOccupancy / GuestSpawner,
          EconomyRules / Ledger / BuildItem / PlacedPieces / Inventory / BuildOp / BuildQuote /
-         Economy (dinero, costes, inventario y pagos),
+         Economy (dinero, costes, inventario y pagos), StorageCapacity (capacidad del almacén),
          GameClock, GameState (raíz de la simulación)
 view/    main.tscn/main.gd (escena principal), IsoProjection (única que conoce el rombo 64x32),
          TilesetFactory (arte provisional por código), LevelView (TileMapLayer), GridLines,
@@ -141,7 +152,8 @@ ui/      BuildToolbar (herramientas, paleta de tipos, Entrada y Agente), WallMod
          AgentInfoPanel, HotelStatusLabel, RoomTexts y GuestTexts (textos en español), ClockLabel
          (día, hora y velocidad), MoneyTexts (importes y textos de dinero), MoneyButton (saldo),
          FinancePanel, NoticeLabel (avisos), RemovalModeBar (Vender/Guardar), InventoryPanel
-data/    room_types.json (tipos de habitación, requisitos, precios de estancia y mantenimiento),
+data/    room_types.json (tipos de habitación, requisitos, precios de estancia, mantenimiento y
+         capacidad de almacén),
          economy.json (reglas de economía)
 assets/  arte y audio (vacío; el arte provisional se genera por código)
 tests/   suites headless de sim/ y view/ más herramientas de verificación con ventana
@@ -181,8 +193,9 @@ Código de salida 1 si algún test falla. Para añadir una suite: crear `tests/t
   ciclo completo de un huésped (herramienta Entrada, tipos Recepción y Dormitorio, llegada,
   check-in, alojamiento, paneles, salida), el modo corte de paredes (tecla C, botones, y la
   visibilidad de un agente por píxeles en los cuatro modos), el dinero (saldo, vista previa con
-  coste, fondos insuficientes, demoler), el inventario (V, I, guardar, reutilizar gratis, vender) y
-  reloj. Admite hasta veintidós rutas de PNG tras `--` (en el orden en que las guarda cada
+  coste, fondos insuficientes, demoler), el inventario (V, I, almacén y su capacidad, guardar,
+  reutilizar gratis, vender, derribar el almacén) y
+  reloj. Admite hasta veintitrés rutas de PNG tras `--` (en el orden en que las guarda cada
   comprobación; ver las llamadas `_save_args`). La escena real tiene economía activa, así que
   la comprobación del dinero fija un saldo de prueba y deja fondos de sobra al terminar para las
   demás.
@@ -281,6 +294,7 @@ Nota: el ratón inyectado no mueve el cursor real del sistema, por eso `CellCurs
   que `F`. Al arrastrar una forma, la vista previa muestra su coste o lo que devuelve (en rojo si no
   hay fondos, y entonces no se construye nada y sale un aviso). Abajo, sobre el selector de paredes,
   "Al quitar": **Vender** (entra el dinero) o **Guardar** (la pieza va al inventario); tecla `V` los
-  alterna. `I` abre el inventario: piezas nuevas y usadas con su valor y un botón para venderlas.
-  La habitación almacén (capacidad del inventario) está pendiente.
+  alterna. `I` abre el inventario: capacidad, piezas nuevas y usadas con su valor y un botón para
+  venderlas. Para guardar piezas hace falta una habitación **Almacén** operativa (botón Almacén de
+  la barra); la vista previa avisa de las piezas que no caben y se venden.
 - Reloj: `Espacio` pausa, `1` / `2` / `3` velocidades.

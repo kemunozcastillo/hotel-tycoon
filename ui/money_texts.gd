@@ -71,6 +71,8 @@ static func quote_text(quote: BuildQuote) -> String:
 		parts.append("+" + format(quote.income))
 	if quote.stored > 0:
 		parts.append("%d al inventario" % quote.stored)
+	if quote.no_room > 0:
+		parts.append("%d no caben en el almacén (se venden)" % quote.no_room)
 	if not quote.affordable:
 		parts.append("¡sin fondos! hacen falta %s" % format(quote.required_balance))
 	return " · ".join(parts)
@@ -88,6 +90,18 @@ static func condition_label(kind: BuildItem.Kind, condition: BuildItem.Condition
 ## Una fila del inventario: "Suelos nuevos ×12 · vale 120 €".
 static func stock_row_text(kind: BuildItem.Kind, condition: BuildItem.Condition, count: int, value: int) -> String:
 	return "%s %s ×%d · vale %s" % [BuildItem.label_plural(kind), condition_label(kind, condition), count, format(value)]
+
+
+## La línea de capacidad del inventario. Vacía si no hay límite.
+static func capacity_text(used: int, capacity: int) -> String:
+	if capacity >= Inventory.UNLIMITED:
+		return ""
+	if capacity == 0 and used == 0:
+		return "Sin almacén: construye una habitación Almacén para guardar piezas."
+	var text: String = "Capacidad: %d / %d" % [used, capacity]
+	if used > capacity:
+		text += " · %d de más: no se guardará nada más hasta ampliar el almacén" % (used - capacity)
+	return text
 
 
 ## Aviso cuando una orden se rechaza por falta de dinero.

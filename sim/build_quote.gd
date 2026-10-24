@@ -17,6 +17,9 @@ var from_stock: int = 0
 var stored: int = 0
 ## Piezas retiradas que se venden (con "Guardar" también las que no caben en el inventario).
 var sold: int = 0
+## Piezas que se querían guardar (modo "Guardar") pero no caben en el almacén y se venden; ya
+## están contadas en `sold`.
+var no_room: int = 0
 ## Piezas que hay que comprar.
 var bought: int = 0
 ## Saldo mínimo con el que se puede hacer toda la lista sin quedar en negativo en ningún paso.
@@ -38,10 +41,11 @@ static func evaluate(ops: Array[BuildOp], inventory: Inventory, rules: EconomyRu
 	var quote := BuildQuote.new()
 	quote.ops_count = ops.size()
 	var stock: Array[int] = []
-	var room: Array[int] = [] # cuántas piezas más caben de cada tipo
 	for kind in range(BuildItem.KIND_COUNT):
 		stock.append(inventory.total(kind as BuildItem.Kind))
-		room.append(inventory.capacity_left(kind as BuildItem.Kind))
+	# La capacidad es un fondo compartido por todos los tipos de pieza.
+	var capacity: int = inventory.get_capacity()
+	var stored_total: int = inventory.total_items()
 	var storing: bool = inventory.removal_mode == Inventory.RemovalMode.STORE
 
 	var running: int = 0 # dinero acumulado por la lista, sin contar el saldo inicial
@@ -49,20 +53,22 @@ static func evaluate(ops: Array[BuildOp], inventory: Inventory, rules: EconomyRu
 	for op in ops:
 		if op.freed_kind >= 0:
 			var freed: int = op.freed_kind
-			if storing and room[freed] > 0:
-				room[freed] -= 1
+			if storing and capacity > stored_total:
+				stored_total += 1
 				stock[freed] += 1
 				quote.stored += 1
 			else:
 				var value: int = rules.sale_value(freed as BuildItem.Kind, op.freed_condition)
 				quote.income += value
 				quote.sold += 1
+				if storing:
+					quote.no_room += 1
 				running += value
 		if op.needed_kind >= 0:
 			var needed: int = op.needed_kind
 			if stock[needed] > 0:
 				stock[needed] -= 1
-				room[needed] += 1
+				stored_total -= 1
 				quote.from_stock += 1
 			else:
 				var price: int = rules.price_of(needed as BuildItem.Kind)
